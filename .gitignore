@@ -1,0 +1,7 @@
+.vscode
+node_modules/
+dist/
+*.vsix
+*.DS_Store
+.DS_Store?
+*-lock.json
