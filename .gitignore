@@ -6,3 +6,4 @@ dist/
 .DS_Store?
 *-lock.json
 *.html
+README_files
