@@ -2,7 +2,7 @@
 
 Edit YAML parameters and render parameterized R Markdown or Quarto reports in an integrated panel in Positron or VS Code.
 
-![Version](https://img.shields.io/badge/version-0.0.1-blue)
+![Version](https://img.shields.io/badge/version-0.0.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Requirements
@@ -34,26 +34,6 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 - Controls start with the document's resolved values. Every value, including unchanged values, is submitted explicitly; **Use NULL** sends null. Rendering does not rewrite the report's YAML.
 - Save and refresh the form after editing the report; **Cancel** stops an active operation.
 - Only run trusted reports: parameter expressions and rendering execute code. Password masking cannot prevent report code from exposing secrets.
-
-## Python parameter defaults
-
-Use `!python` for a Python expression in a parameter's `value` (or directly after the parameter name):
-
-```yaml
-params:
-  start_date:
-    label: "Start date"
-    value: !python date.today() - timedelta(days=30)
-    input: date
-```
-
-Opening or refreshing the form asks for confirmation before executing expressions, and shows the selected Python interpreter. Declining does not run Python. Expressions can access files and the network and are **not sandboxed**; approve only trusted documents.
-
-Python defaults run in a separate Python 3 process in the report directory, not the active console or report kernel. `datetime` (the module), `date`, and `timedelta` are provided. Each default is an independent expression, not a statement block, and cannot reference report-cell variables or other defaults. Other modules can be imported with `__import__()` and must be installed in the selected interpreter.
-
-Supported results are strings, booleans, finite numbers, dates/datetimes (ISO strings), lists/tuples, and `None`. Use `input: date` with a `date` result, not a timestamp. Quote expressions containing YAML collection syntax or `: `, for example `value: !python '["AL", "AK"]'`. Python tags are supported only for defaults, not choices or other metadata; existing `!r` defaults and choices continue to work.
-
-`!python` is an extension feature, not a native Quarto/knitr tag. Render through **Knit with Parameters** to supply the evaluated values. Rendering the original document directly does not evaluate these defaults. Python/Jupyter parameterized rendering also requires `papermill` in Quarto's Python environment.
 
 ## Settings
 
