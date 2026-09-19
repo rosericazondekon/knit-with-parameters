@@ -19,21 +19,12 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 3. Run **Extensions: Install from VSIX...** and select the downloaded file. Alternatively, open the Extensions view, select **...**, then **Install from VSIX...**.
 4. Reload the editor if prompted. Open a saved `.Rmd` or `.qmd` report and run **Knit with Parameters**.
 
-- Install separately in each editor if using both Positron and VS Code.
-- To update manually, download the latest `.vsix` and repeat these steps.
-
 ## Usage
 
 1. Open a saved `.Rmd` or `.qmd` report with YAML `params`.
 2. Select **Knit with Parameters** from the editor toolbar or Command Palette.
 3. Edit the resolved parameter values as needed, then select **Knit**.
 4. Inspect the rendered output and the **Knit with Parameters** Output channel.
-
-- Supports text, password, numeric, slider, checkbox, date, file, and single/multiple-select controls.
-- File parameters provide an editable path and **Browse…** button. Browse opens an in-editor file picker: select folders to navigate, `..` to go up, or **Enter folder path…** to jump to a directory. Select a file to use it. Paths are relative to the report directory; file contents are not uploaded.
-- Controls start with the document's resolved values. Every value, including unchanged values, is submitted explicitly; **Use NULL** sends null. Rendering does not rewrite the report's YAML.
-- Save and refresh the form after editing the report; **Cancel** stops an active operation.
-- Only run trusted reports: parameter expressions and rendering execute code. Password masking cannot prevent report code from exposing secrets.
 
 ## Settings
 
@@ -50,10 +41,8 @@ Run commands from the extension's project root with a current Node.js LTS releas
 - **Install dependencies:** `npm install`
 - **Compile:** `npm run compile`
 - **Run Node tests:** `npm test` (includes compilation).
-- **Run R bridge tests separately:** in R, run `source("tests/bridge-tests.R")`, then `run_bridge_tests()`.
 - **Debug:** select **Run Parameter Extension** in Run and Debug, then open a report in the Extension Development Host.
-- **Package:** create the `dist` directory if needed, then run `npm run package -- --out dist/knit-with-parameters-0.0.1.vsix`. Packaging compiles automatically; match the filename to the version in [package.json](package.json).
-- **Verify:** test `.Rmd` and `.qmd` rendering, cancellation, parameter refresh, and light/dark icons before distributing the VSIX.
+- **Verify:** test `.Rmd` and `.qmd` rendering, cancellation, parameter refresh.
 
 ## Contributing
 
