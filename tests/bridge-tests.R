@@ -18,6 +18,36 @@ run_bridge_tests <- function(root = ".") {
   ))
   skeleton_inspection <- bridge_inspect(list(file = skeleton))
   stopifnot(identical(skeleton_inspection$hasExpressions, TRUE))
+  state_schema <- bridge_resolve(list(file = skeleton))$parameters[[1L]]
+  stopifnot(
+    identical(state_schema$value, "AL"),
+    length(state_schema$choices) == 50L,
+    identical(vapply(state_schema$choices, `[[`, character(1), "label"), state.abb),
+    identical(vapply(state_schema$choices, `[[`, character(1), "value"), state.abb)
+  )
+  choices_json <- file.path(temp, "choices.json")
+  bridge_write_json(state_schema, choices_json)
+  choices_roundtrip <- jsonlite::fromJSON(choices_json, simplifyVector = FALSE)$choices
+  stopifnot(length(choices_roundtrip) == 50L,
+            identical(choices_roundtrip[[1L]], list(label = "AL", value = "AL")))
+
+  named_choices <- write_document("named-expression-choices.qmd", c(
+    "params:", "  state:", "    value: AL", "    input: select",
+    "    choices: !r setNames(state.abb, state.name)"
+  ))
+  named_schema <- bridge_resolve(list(file = named_choices))$parameters[[1L]]
+  stopifnot(
+    identical(vapply(named_schema$choices, `[[`, character(1), "label"), state.name),
+    identical(vapply(named_schema$choices, `[[`, character(1), "value"), state.abb)
+  )
+  nested_choices <- write_document("nested-expression-choices.Rmd", c(
+    "params:", "  count:", "    value: 2", "    input: select",
+    "    choices:", "      Two: !r 1 + 1", "      Three: 3"
+  ))
+  nested_schema <- bridge_resolve(list(file = nested_choices))$parameters[[1L]]
+  stopifnot(identical(nested_schema$choices[[1L]], list(label = "Two", value = 2)))
+  stopifnot(identical(bridge_choices(list(value = "AL", expr = "AK")),
+    list(list(label = "value", value = "AL"), list(label = "expr", value = "AK"))))
 
   fixture <- write_document("controls.Rmd", c(
     "title: Bridge controls",

@@ -52,7 +52,15 @@ bridge_json_value <- function(value, multiple = FALSE) {
   value
 }
 
+bridge_choice_value <- function(value) {
+  # knitr retains expression metadata for choices even after evaluating them.
+  if (inherits(value, "knit_param_expr")) return(bridge_choice_value(value$value))
+  if (is.list(value)) return(lapply(value, bridge_choice_value))
+  value
+}
+
 bridge_choices <- function(choices) {
+  choices <- bridge_choice_value(choices)
   if (is.null(choices)) return(list())
   if (is.factor(choices)) choices <- as.character(choices)
   if (!is.list(choices)) choices <- as.list(choices)
