@@ -6,33 +6,37 @@ const schema = [
   {name:'region',type:'select',multiple:true,choices:[{value:'A'},{value:'B'}]},
   {name:'date',type:'date'}, {name:'enabled',type:'checkbox'}, {name:'password',type:'password'}
 ];
-const defaults = () => Object.fromEntries(schema.map(p => [p.name,{useDefault:true}]));
+const values = () => ({
+  count:{value:1}, region:{value:['A']}, date:{value:'2026-09-17'}, enabled:{value:true}, password:{value:''}
+});
 test('eligible document extensions only', () => {
   for (const file of ['test.Rmd','report.qmd','REPORT.QMD','space path/a.rMD']) assert.ok(eligible(file));
   for (const file of ['test.R','report.qmd.txt','report.html']) assert.ok(!eligible(file));
 });
-test('default selections omit values; explicit NULL is distinct', () => {
-  const values = defaults(); values.count = {useDefault:false,value:null};
-  const result = validateValues(values,schema);
-  assert.deepEqual(result.count,{useDefault:false,value:null});
-  assert.deepEqual(result.region,{useDefault:true});
+test('every resolved value, including NULL, is retained explicitly', () => {
+  const submitted = values(); submitted.count = {value:null};
+  const result = validateValues(submitted,schema);
+  assert.deepEqual(result.count,{value:null});
+  assert.deepEqual(result.region,{value:['A']});
 });
 test('typed selections preserve numeric, multi-select and booleans', () => {
-  const values = defaults();
-  values.count = {useDefault:false,value:3.5}; values.region = {useDefault:false,value:[]};
-  values.enabled = {useDefault:false,value:false}; values.date = {useDefault:false,value:'2026-09-17'};
-  const result = validateValues(values,schema);
+  const submitted = values();
+  submitted.count = {value:3.5}; submitted.region = {value:[]};
+  submitted.enabled = {value:false}; submitted.date = {value:'2026-09-17'};
+  const result = validateValues(submitted,schema);
   assert.equal(result.count.value,3.5); assert.deepEqual(result.region.value,[]); assert.equal(result.enabled.value,false);
 });
-test('reject malformed messages and stale/unknown parameter sets', () => {
-  for (const value of [null,[],{}, {injected:{useDefault:true}}]) assert.throws(()=>validateValues(value,schema));
-  const values = defaults(); values.count = {useDefault:'true'};
-  assert.throws(()=>validateValues(values,schema));
+test('reject malformed messages, unknown sets, and entries missing own values', () => {
+  for (const value of [null,[],{}, {injected:{value:1}}]) assert.throws(()=>validateValues(value,schema));
+  for (const selection of [{}, {value:undefined}, Object.create({value:1}), [], null]) {
+    const submitted = values(); submitted.count = selection;
+    assert.throws(()=>validateValues(submitted,schema));
+  }
 });
 test('reject invalid typed values without including submitted secrets', () => {
   for (const [name,value] of [['count','secret'],['count',NaN],['count',101],['region',['injected']],['date','2026-02-30'],['enabled',1],['password',{}]]) {
-    const values = defaults(); values[name] = {useDefault:false,value};
-    assert.throws(()=>validateValues(values,schema),error => !error.message.includes('secret'));
+    const submitted = values(); submitted[name] = {value};
+    assert.throws(()=>validateValues(submitted,schema),error => !error.message.includes('secret'));
   }
 });
 test('process runner passes paths and arguments literally without shell expansion', async () => {

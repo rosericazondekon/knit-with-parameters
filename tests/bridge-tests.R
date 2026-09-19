@@ -94,31 +94,42 @@ run_bridge_tests <- function(root = ".") {
   override_request <- list(
     file = fixture,
     values = list(
-      numeric_alias = list(useDefault = TRUE, value = 999),
-      event_date = list(useDefault = FALSE, value = "2025-01-15"),
-      plain_text = list(useDefault = FALSE, value = NULL),
-      region = list(useDefault = FALSE, value = "east"),
-      tags = list(useDefault = FALSE, value = list("three"))
+      numeric_alias = list(value = 4),
+      event_date = list(value = "2025-01-15"),
+      plain_text = list(value = NULL),
+      secret = list(value = ""),
+      region = list(value = "east"),
+      tags = list(value = list("three")),
+      enabled = list(value = TRUE),
+      threshold = list(value = 5)
     )
   )
   overrides <- bridge_overrides(override_request)
   stopifnot(
-    !("numeric_alias" %in% names(overrides)),
+    identical(overrides$numeric_alias, 4),
     inherits(overrides$event_date, "Date"),
     identical(format(overrides$event_date), "2025-01-15"),
     "plain_text" %in% names(overrides),
     is.null(overrides$plain_text),
     identical(overrides$region, "east"),
-    identical(overrides$tags, "three")
+    identical(overrides$tags, "three"),
+    identical(overrides$enabled, TRUE),
+    identical(overrides$threshold, 5)
   )
+  missing_value <- tryCatch(
+    bridge_overrides(list(file = fixture, values = list(numeric_alias = list()))),
+    error = identity
+  )
+  stopifnot(inherits(missing_value, "error"))
 
   params_yaml <- file.path(temp, "params.yml")
   quarto_response <- bridge_write_quarto_params(c(override_request, list(outputParams = params_yaml)))
   yaml_text <- readLines(params_yaml, warn = FALSE)
   stopifnot(
     identical(quarto_response, list()),
-    !any(grepl("numeric_alias", yaml_text, fixed = TRUE)),
+    any(grepl("numeric_alias: 4", yaml_text, fixed = TRUE)),
     any(grepl("event_date: '2025-01-15'", yaml_text, fixed = TRUE)),
+    any(grepl("enabled: yes", yaml_text, fixed = TRUE)),
     any(grepl("plain_text: ~", yaml_text, fixed = TRUE)),
     any(grepl("tags:", yaml_text, fixed = TRUE)),
     any(grepl("- three", yaml_text, fixed = TRUE))
@@ -141,8 +152,8 @@ run_bridge_tests <- function(root = ".") {
   render_result <- bridge_render_rmd(list(
     file = render_fixture,
     values = list(
-      day = list(useDefault = FALSE, value = "2025-03-04"),
-      optional = list(useDefault = FALSE, value = NULL)
+      day = list(value = "2025-03-04"),
+      optional = list(value = NULL)
     )
   ))
   stopifnot(file.exists(render_result$output))
@@ -151,6 +162,21 @@ run_bridge_tests <- function(root = ".") {
     grepl("Date:2025-03-04", rendered, fixed = TRUE),
     grepl("EXPLICIT\\_NULL", rendered, fixed = TRUE)
   )
+
+  file_fixture <- write_document("file-input.Rmd", c(
+    "output: md_document", "params:", "  data:",
+    "    label: 'Input dataset:'", "    value: results.csv", "    input: file"
+  ), "`r read.csv(params$data)$value[1]`")
+  file_schema <- bridge_resolve(list(file = file_fixture))$parameters[[1L]]
+  stopifnot(identical(file_schema$type, "file"), identical(file_schema$value, "results.csv"))
+  writeLines(c("value", "FILEINPUTOK"), file.path(temp, "selected data.csv"))
+  file_request <- list(file = file_fixture, values = list(data = list(value = "selected data.csv")))
+  stopifnot(identical(bridge_overrides(file_request)$data, "selected data.csv"))
+  file_output <- bridge_render_rmd(file_request)$output
+  stopifnot(any(grepl("FILEINPUTOK", readLines(file_output), fixed = TRUE)))
+  file_yaml <- file.path(temp, "file-params.yml")
+  bridge_write_quarto_params(c(file_request, list(outputParams = file_yaml)))
+  stopifnot(identical(yaml::read_yaml(file_yaml)$data, "selected data.csv"))
 
   no_expr <- write_document("plain.Rmd", c("params:", "  value: 1"))
   stopifnot(identical(bridge_inspect(list(file = no_expr))$hasExpressions, FALSE))

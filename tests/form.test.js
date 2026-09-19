@@ -12,40 +12,143 @@ function setup() {
   const parameters = [
     {name:'count',label:'<script>evil()</script>',type:'numeric',value:1.5},
     {name:'tags',label:'Tags',type:'select',multiple:true,value:['A'],choices:[{label:'A',value:'A'},{label:'B',value:'B'}]},
-    {name:'password',label:'Password',type:'password',value:''}
+    {name:'password',label:'Password',type:'password',value:''},
+    {name:'optional',label:'Optional',type:'text',value:null}
   ];
   send({type:'schema',file:'test.Rmd',parameters});
   return {dom,doc:dom.window.document,messages,send};
 }
-test('schema attaches visible accessible controls with escaped labels',()=>{
+test('schema attaches visible accessible controls with resolved editable values',()=>{
   const {dom,doc,messages}=setup();
   assert.equal(messages[0].type,'ready');
-  assert.equal(doc.querySelectorAll('#fields fieldset').length,3);
+  assert.equal(doc.querySelectorAll('#fields fieldset').length,4);
   assert.equal(doc.querySelectorAll('#fields script').length,0);
   assert.equal(doc.querySelector('input[type=number]').getAttribute('aria-label'),'<script>evil()</script>');
   assert.equal(doc.querySelector('input[type=number]').step,'any');
+  assert.equal(doc.querySelector('input[type=number]').value,'1.5');
+  assert.ok(doc.querySelector('option').selected);
+  assert.ok(!doc.querySelector('input[type=number]').disabled);
+  assert.equal(doc.querySelectorAll('.choice-toggle').length,4);
+  assert.equal(doc.querySelectorAll('.choice-toggle input:checked').length,1);
+  assert.ok(doc.querySelector('input[name=optional]').disabled);
+  assert.ok(!doc.querySelector('#fields').textContent.includes('Use document default'));
   dom.window.close();
 });
-test('typed overrides, empty multiselect, and password messages',()=>{
+test('submits every unchanged resolved value explicitly',()=>{
   const {dom,doc,messages}=setup();
-  const rows=doc.querySelectorAll('fieldset');
-  for(const row of rows) {
-    const toggle=row.querySelector('.choice-toggle input'); toggle.checked=false;
-    toggle.dispatchEvent(new dom.window.Event('change'));
-  }
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1))),{type:'knit',values:{
+    count:{value:1.5}, tags:{value:['A']}, password:{value:''}, optional:{value:null}
+  }});
+  dom.window.close();
+});
+test('typed values, empty multiselect, password, and explicit NULL submit value entries',()=>{
+  const {dom,doc,messages}=setup();
   doc.querySelector('input[type=number]').value='2.75';
   for(const option of doc.querySelectorAll('option')) option.selected=false;
   doc.querySelector('input[type=password]').value='temporary';
+  const nullInput=doc.querySelector('input[name=count]').closest('fieldset').querySelector('.choice-toggle input');
+  nullInput.checked=true;
+  nullInput.dispatchEvent(new dom.window.Event('change'));
   doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
   const values=messages.at(-1).values;
-  assert.equal(values.count.value,2.75); assert.equal(values.tags.value.length,0);
-  assert.equal(values.password.value,'temporary');
+  assert.equal(values.count.value,null); assert.equal(values.tags.value.length,0);
+  assert.equal(values.password.value,'temporary'); assert.equal(values.optional.value,null);
   dom.window.close();
 });
-test('busy state locks default toggles but allows cancellation',()=>{
+test('file browsing acknowledges requests, prevents duplicates, and applies only current selections',()=>{
+  const {dom,doc,messages,send}=setup();
+  const schema={type:'schema',parameters:[{name:'data',label:'Input dataset:',type:'file',value:'results.csv'}]};
+  send(schema);
+  let input=doc.querySelector('input[name=data]');
+  let browse=doc.querySelector('.control-wrap button');
+  assert.equal(input.type,'text');
+  assert.equal(input.value,'results.csv');
+  browse.click();
+  const first=messages.at(-1);
+  assert.deepEqual(JSON.parse(JSON.stringify(first)),{type:'pickFile',name:'data',requestId:first.requestId});
+  assert.equal(doc.querySelector('#status').textContent,'Opening file picker…');
+  assert.equal(browse.textContent,'Opening…');
+  assert.ok(browse.disabled);
+  browse.click();
+  assert.equal(messages.filter(message=>message.type==='pickFile').length,1);
+  send({...first,type:'filePickerOpened'});
+  assert.equal(browse.textContent,'Selecting…');
+  assert.ok(browse.disabled);
+  send({...first,type:'filePicked',requestId:first.requestId+1,value:'wrong.csv'});
+  assert.equal(input.value,'results.csv');
+  send({...first,type:'filePicked',value:'datasets/my results.csv'});
+  assert.equal(input.value,'datasets/my results.csv');
+  assert.equal(browse.textContent,'Browse…');
+  assert.ok(!browse.disabled);
+  assert.equal(doc.querySelector('#status').textContent,'');
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.equal(messages.at(-1).values.data.value,'datasets/my results.csv');
+  dom.window.close();
+});
+test('file browsing ignores cancellation, errors, and stale replies after manual edits',()=>{
+  const {dom,doc,messages,send}=setup();
+  const schema={type:'schema',parameters:[{name:'data',type:'file',value:'results.csv'}]};
+  send(schema);
+  const input=doc.querySelector('input[name=data]');
+  const browse=doc.querySelector('.control-wrap button');
+  browse.click();
+  const cancelled=messages.at(-1);
+  send({...cancelled,type:'filePickerOpened'});
+  send({...cancelled,type:'filePicked',value:null});
+  assert.equal(input.value,'results.csv');
+  assert.equal(browse.textContent,'Browse…');
+  assert.equal(doc.querySelector('#status').textContent,'');
+  browse.click();
+  const failed=messages.at(-1);
+  send({...failed,type:'filePicked',error:'Picker unavailable'});
+  assert.equal(input.value,'results.csv');
+  assert.equal(browse.textContent,'Browse…');
+  assert.equal(doc.querySelector('#status').textContent,'Picker unavailable');
+  browse.click();
+  const stale=messages.at(-1);
+  input.value='typed.csv';
+  input.dispatchEvent(new dom.window.Event('input'));
+  assert.equal(browse.textContent,'Browse…');
+  send({...stale,type:'filePicked',value:'stale.csv'});
+  assert.equal(input.value,'typed.csv');
+  send(schema);
+  send({...stale,type:'filePicked',value:'also-stale.csv'});
+  assert.equal(doc.querySelector('input[name=data]').value,'results.csv');
+  const nullInput=doc.querySelector('.choice-toggle input');
+  nullInput.checked=true;
+  nullInput.dispatchEvent(new dom.window.Event('change'));
+  assert.ok(doc.querySelector('.control-wrap button').disabled);
+  dom.window.close();
+});
+test('file picker acknowledgement timeout restores the control and reports recovery guidance',()=>{
+  const {dom,doc,messages,send}=setup();
+  let timeout;
+  dom.window.setTimeout=(callback,delay)=>{
+    assert.equal(delay,8000);
+    timeout=callback;
+    return 42;
+  };
+  send({type:'schema',parameters:[{name:'data',type:'file',value:'results.csv'}]});
+  const input=doc.querySelector('input[name=data]');
+  const browse=doc.querySelector('.control-wrap button');
+  browse.click();
+  const request=messages.at(-1);
+  assert.equal(browse.textContent,'Opening…');
+  timeout();
+  assert.equal(browse.textContent,'Browse…');
+  assert.ok(!browse.disabled);
+  assert.equal(doc.querySelector('#status').textContent,'File picker did not respond. Reload the editor window and reopen Parameters, then try again.');
+  send({...request,type:'filePickerOpened'});
+  send({...request,type:'filePicked',value:'late.csv'});
+  assert.equal(input.value,'results.csv');
+  dom.window.close();
+});
+test('busy state locks controls and NULL choices but allows cancellation',()=>{
   const {dom,doc,messages,send}=setup();
   send({type:'status',text:'Rendering',busy:true});
   assert.ok(doc.querySelector('#knit').disabled);
+  assert.ok(doc.querySelector('input[type=number]').disabled);
   assert.ok(doc.querySelector('.choice-toggle input').disabled);
   assert.ok(!doc.querySelector('#cancel').disabled);
   doc.querySelector('#cancel').click(); assert.equal(messages.at(-1).type,'cancel');

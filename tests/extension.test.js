@@ -12,6 +12,7 @@ const reportSchema = [
   {name: 'count', label: 'Count', type: 'numeric', value: 1, choices: [], multiple: false, min: 0, max: 10},
   {name: 'enabled', label: 'Enabled', type: 'checkbox', value: true, choices: [], multiple: false}
 ];
+const fileSchema = [...reportSchema, {name: 'input_file', label: 'Input file', type: 'file', value: '', choices: [], multiple: false}];
 const temporaryPaths = [];
 afterEach(async () => { await Promise.all(temporaryPaths.splice(0).map(p => fs.rm(p, {recursive: true, force: true}))); });
 
@@ -25,7 +26,7 @@ function makeUri(fileName) {
 }
 
 function loadExtension(options = {}) {
-  const state = {commands: new Map(), panels: [], errors: [], warnings: [], infos: [], output: '', runs: [], requests: [], opened: []};
+  const state = {commands: new Map(), panels: [], errors: [], warnings: [], infos: [], output: '', runs: [], requests: [], opened: [], openDialogOptions: []};
   let receive;
   class FakeRunner {
     constructor() { this.cancelled = false; state.runners ??= []; state.runners.push(this); }
@@ -44,7 +45,7 @@ function loadExtension(options = {}) {
         return;
       }
       const response = mode === 'inspect' ? {hasExpressions: false}
-        : mode === 'resolve' ? {parameters: reportSchema}
+        : mode === 'resolve' ? {parameters: options.schema ?? reportSchema}
         : mode === 'render-rmd' ? {output: `${request.file}.html`}
         : {};
       await fs.writeFile(args[3], JSON.stringify(response));
@@ -83,11 +84,16 @@ function loadExtension(options = {}) {
         return panel;
       },
       async showErrorMessage(message) { state.errors.push(message); },
+      async showOpenDialog(dialogOptions) {
+        state.openDialogOptions.push(dialogOptions);
+        if (options.openDialog) return options.openDialog(dialogOptions);
+        return options.openDialogResult;
+      },
       async showWarningMessage(message) { state.warnings.push(message); return options.warningChoice; },
       async showInformationMessage(message, ...actions) { state.infos.push(message); return options.infoChoice && actions.includes(options.infoChoice) ? options.infoChoice : undefined; }
     },
     workspace: {
-      isTrusted: options.trusted !== false,
+      get isTrusted() { return options.trusted !== false; },
       async openTextDocument() { return options.document; },
       getConfiguration() { return {get: (_key, fallback) => fallback}; }
     }
@@ -107,6 +113,13 @@ function loadExtension(options = {}) {
         state.discovery ??= [];
         state.discovery.push({tool, configured, options});
         return `/detected/${tool}`;
+      }
+    };
+    if (request === './filePicker' && parent?.filename === extensionPath) return {
+      pickInputFile: async directory => {
+        state.pickerDirectories ??= [];
+        state.pickerDirectories.push(directory);
+        return options.pickerResult;
       }
     };
     if (request === './core' && parent && parent.filename === extensionPath) return fakeCore;
@@ -169,36 +182,97 @@ test('dispatches typed Rmd knit values through the bridge fixture', async () => 
   const panel = await ready(harness);
   assert.deepEqual(panel.webview.messages.find(m => m.type === 'schema').parameters, reportSchema);
   await panel.send({type: 'knit', values: {
-    count: {useDefault: false, value: 3.5}, enabled: {useDefault: false, value: false}
+    count: {value: 3.5}, enabled: {value: false}
   }});
   const render = harness.state.requests.find(x => x.mode === 'render-rmd');
-  assert.deepEqual(render.request.values, {count: {useDefault: false, value: 3.5}, enabled: {useDefault: false, value: false}});
+  assert.deepEqual(render.request.values, {count: {value: 3.5}, enabled: {value: false}});
   assert.equal(render.request.file, fileName);
   assert.match(harness.state.output, /Rendering completed successfully/);
   assert.deepEqual(harness.state.opened[0], ['preview', `${fileName}.html`]);
 });
 
-test('Quarto render automatically previews its reported artifact exactly once', async () => {
+test('Quarto writes and passes every value when the schema is non-empty', async () => {
   const {document, fileName} = await fixture('.qmd');
   const harness = loadExtension({document});
   const panel = await ready(harness);
-  await panel.send({type: 'knit', values: {count: {useDefault: false, value: 7}, enabled: {useDefault: true}}});
+  await panel.send({type: 'knit', values: {count: {value: 7}, enabled: {value: true}}});
   assert.deepEqual(harness.state.opened, [['preview', `${fileName}.html`]]);
   assert.equal(harness.state.runs.filter(run => run.command === '/detected/quarto').length, 1);
-  assert.ok(harness.state.requests.some(request => request.mode === 'write-quarto-params'));
+  const write = harness.state.requests.find(request => request.mode === 'write-quarto-params');
+  assert.deepEqual(write.request.values, {count: {value: 7}, enabled: {value: true}});
+  const quarto = harness.state.runs.find(run => run.command === '/detected/quarto');
+  assert.ok(quarto.args.includes('--execute-params'));
+});
+
+test('Quarto skips execute params only for an empty schema', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  const harness = loadExtension({document, schema: []});
+  const panel = await ready(harness);
+  await panel.send({type: 'knit', values: {}});
+  assert.ok(!harness.state.requests.some(request => request.mode === 'write-quarto-params'));
+  const quarto = harness.state.runs.find(run => run.command === '/detected/quarto');
+  assert.deepEqual(quarto.args, ['render', fileName]);
 });
 
 test('cancel stops an in-flight render and reports ready without success', async () => {
   const {document} = await fixture();
   const harness = loadExtension({document, pauseRender: true});
   const panel = await ready(harness);
-  const knitting = panel.send({type: 'knit', values: {count: {useDefault: true}, enabled: {useDefault: true}}});
+  const knitting = panel.send({type: 'knit', values: {count: {value: 1}, enabled: {value: true}}});
   await waitFor(() => harness.state.requests.some(x => x.mode === 'render-rmd'));
   await panel.send({type: 'cancel'});
   await knitting;
   assert.ok(harness.state.runners.some(runner => runner.cancelled));
   assert.ok(panel.webview.messages.some(m => m.type === 'status' && m.text === 'Cancelling…'));
   assert.doesNotMatch(harness.state.output, /completed successfully/);
+});
+
+test('file picker returns a document-relative path and accepts spaces', async () => {
+  const {document, fileName} = await fixture();
+  const selected = path.join(path.dirname(fileName), 'data files', 'input file.csv');
+  const harness = loadExtension({document, schema: fileSchema, pickerResult: selected});
+  const panel = await ready(harness);
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 1});
+  assert.deepEqual(panel.webview.messages.at(-1), {type: 'filePicked', name: 'input_file', requestId: 1, value: path.join('data files', 'input file.csv')});
+  assert.ok(panel.webview.messages.some(message => message.type === 'filePickerOpened' && message.requestId === 1));
+  assert.deepEqual(harness.state.pickerDirectories, [path.dirname(fileName)]);
+  assert.equal(harness.state.openDialogOptions.length, 0);
+});
+
+test('file picker reports cancellation and ignores invalid requests', async () => {
+  const {document} = await fixture();
+  const harness = loadExtension({document, schema: fileSchema});
+  const panel = await ready(harness);
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 2});
+  assert.deepEqual(panel.webview.messages.at(-1), {type: 'filePicked', name: 'input_file', requestId: 2, value: null});
+  const before = panel.webview.messages.length;
+  await panel.send({type: 'pickFile', name: 'count', requestId: 3});
+  await panel.send({type: 'pickFile', name: 'missing', requestId: 4});
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 0});
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 1.5});
+  assert.equal(harness.state.pickerDirectories.length, 1);
+  assert.equal(panel.webview.messages.length, before);
+});
+
+test('file picker is blocked while busy or after workspace trust is revoked', async () => {
+  const {document} = await fixture();
+  const options = {document, schema: fileSchema, pauseRender: true};
+  const harness = loadExtension(options);
+  const panel = await ready(harness);
+  const knitting = panel.send({type: 'knit', values: {
+    count: {value: 1}, enabled: {value: true}, input_file: {value: ''}
+  }});
+  await waitFor(() => harness.state.requests.some(x => x.mode === 'render-rmd'));
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 5});
+  assert.equal(harness.state.openDialogOptions.length, 0);
+  assert.equal(harness.state.pickerDirectories?.length ?? 0, 0);
+  await panel.send({type: 'cancel'});
+  await knitting;
+  options.trusted = false;
+  await panel.send({type: 'pickFile', name: 'input_file', requestId: 6});
+  assert.equal(harness.state.openDialogOptions.length, 0);
+  assert.equal(harness.state.pickerDirectories?.length ?? 0, 0);
+  assert.match(panel.webview.messages.at(-1).error, /Trust this workspace/);
 });
 
 test('dirty and stale documents cannot be rendered', async () => {
@@ -212,7 +286,7 @@ test('dirty and stale documents cannot be rendered', async () => {
   const harness = loadExtension({document: second.document});
   const panel = await ready(harness);
   await fs.appendFile(second.fileName, 'changed');
-  await panel.send({type: 'knit', values: {count: {useDefault: true}, enabled: {useDefault: true}}});
+  await panel.send({type: 'knit', values: {count: {value: 1}, enabled: {value: true}}});
   assert.ok(harness.state.errors.some(message => /Document changed\. Refresh/i.test(message)));
   assert.ok(!harness.state.requests.some(x => x.mode === 'render-rmd'));
 });
