@@ -68,7 +68,7 @@ function activate(context) {
         let schema = [];
         let snapshot = '';
         let schemaReady = false;
-        let schemaPython = false;
+        let schemaExpressions = false;
         let busy = false;
         let disposed = false;
         let runner;
@@ -211,7 +211,7 @@ function activate(context) {
             await operation(async (dir) => {
                 status('Reading parameter declarations…');
                 schemaReady = false;
-                schemaPython = false;
+                schemaExpressions = false;
                 snapshot = await currentText();
                 schema = [];
                 const inspection = await bridge('inspect', dir);
@@ -252,7 +252,7 @@ function activate(context) {
                 if (!Array.isArray(resolved.parameters))
                     throw new Error('Invalid parameter schema from R.');
                 schema = resolved.parameters;
-                schemaPython = hasPython;
+                schemaExpressions = Boolean(inspection.hasExpressions || hasPython);
                 schemaReady = true;
                 post({ type: 'schema', file: path.basename(document.fileName), parameters: schema });
             });
@@ -344,12 +344,12 @@ function activate(context) {
                         let temporary;
                         let outputFile;
                         try {
-                            if (schemaPython) {
+                            if (schemaExpressions) {
                                 const extension = path.extname(original);
                                 const temporaryStem = `.knit-params-${(0, node_crypto_1.randomBytes)(12).toString('hex')}`;
                                 temporary = path.join(reportDir, temporaryStem + extension);
                                 const submitted = Object.fromEntries(Object.entries(values).map(([name, selection]) => [name, selection.value]));
-                                const materialized = (0, pythonDocument_1.materializePythonDefaults)(snapshot, submitted);
+                                const materialized = (0, pythonDocument_1.materializeParameterExpressions)(snapshot, submitted, schema);
                                 await fs.writeFile(temporary, materialized, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
                                 source = temporary;
                                 outputFile = await inspectQuartoOutput(quarto, source, path.parse(original).name, temporaryStem);

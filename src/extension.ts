@@ -7,7 +7,7 @@ import { Cancelled, eligible, Parameter, ProcessRunner, validateValues, Values }
 import { resolveExecutable, Tool } from './executables';
 import { previewOutput, quartoOutputPaths } from './preview';
 import { pickInputFile } from './filePicker';
-import { materializePythonDefaults } from './pythonDocument';
+import { materializeParameterExpressions } from './pythonDocument';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Knit with Parameters');
@@ -28,7 +28,7 @@ export function activate(context: vscode.ExtensionContext): void {
     let schema: Parameter[] = [];
     let snapshot = '';
     let schemaReady = false;
-    let schemaPython = false;
+    let schemaExpressions = false;
     let busy = false;
     let disposed = false;
     let runner: ProcessRunner | undefined;
@@ -130,7 +130,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await operation(async dir => {
         status('Reading parameter declarations…');
         schemaReady = false;
-        schemaPython = false;
+        schemaExpressions = false;
         snapshot = await currentText();
         schema = [];
         const inspection = await bridge('inspect', dir);
@@ -162,7 +162,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (snapshot !== await currentText()) throw new Error('Document changed during discovery. Refresh parameters.');
         if (!Array.isArray(resolved.parameters)) throw new Error('Invalid parameter schema from R.');
         schema = resolved.parameters;
-        schemaPython = hasPython;
+        schemaExpressions = Boolean(inspection.hasExpressions || hasPython);
         schemaReady = true;
         post({type: 'schema', file: path.basename(document!.fileName), parameters: schema});
       });
@@ -233,12 +233,12 @@ export function activate(context: vscode.ExtensionContext): void {
             let temporary: string | undefined;
             let outputFile: string | undefined;
             try {
-              if (schemaPython) {
+              if (schemaExpressions) {
                 const extension = path.extname(original);
                 const temporaryStem = `.knit-params-${randomBytes(12).toString('hex')}`;
                 temporary = path.join(reportDir, temporaryStem + extension);
                 const submitted = Object.fromEntries(Object.entries(values).map(([name, selection]) => [name, selection.value]));
-                const materialized = materializePythonDefaults(snapshot, submitted);
+                const materialized = materializeParameterExpressions(snapshot, submitted, schema);
                 await fs.writeFile(temporary, materialized, {encoding: 'utf8', mode: 0o600, flag: 'wx'});
                 source = temporary;
                 outputFile = await inspectQuartoOutput(quarto, source, path.parse(original).name, temporaryStem);

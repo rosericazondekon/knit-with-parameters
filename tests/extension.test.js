@@ -397,6 +397,38 @@ test('Quarto materializes Python defaults in a private sibling and preserves the
   assert.deepEqual(harness.state.opened, [['preview', 'report.html']]);
 });
 
+test('Quarto materializes R defaults and choices without reevaluation or Python', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  const original = '---\nformat: html\nparams:\n  state:\n    value: AL\n    choices: !r state.abb\n  start_date:\n    value: !r Sys.Date() - 30\n    input: date\n---\nReport body\n';
+  await fs.writeFile(fileName, original);
+  let temporary;
+  const schema = [
+    {name:'state',label:'State',type:'select',value:'AL',choices:[{label:'AL',value:'AL'},{label:'AK',value:'AK'}],multiple:false},
+    {name:'start_date',label:'Start date',type:'date',value:'2026-08-20',choices:[],multiple:false}
+  ];
+  const harness = loadExtension({
+    document, schema, warningChoice:'Evaluate parameters',
+    inspection:{hasExpressions:true,hasRExpressions:true,pythonExpressions:{}},
+    onQuartoInspect: async source => {
+      temporary = source;
+      const content = await fs.readFile(source,'utf8');
+      assert.doesNotMatch(content,/!r|Sys.Date|state.abb/);
+      assert.match(content,/2026-08-21/);
+      assert.match(content,/- AK/);
+      assert.ok(content.endsWith('---\nReport body\n'));
+    }
+  });
+  const panel = await ready(harness);
+  await panel.send({type:'knit',values:{state:{value:'AK'},start_date:{value:'2026-08-21'}}});
+  assert.deepEqual(harness.state.errors,[]);
+  assert.equal(harness.state.requests.filter(item => item.mode === 'resolve').length,1);
+  assert.ok(!harness.state.runs.some(run => run.command === '/detected/python'));
+  assert.equal(await fs.readFile(fileName,'utf8'),original);
+  await assert.rejects(fs.access(temporary));
+  const render = harness.state.runs.find(run => run.command === '/detected/quarto' && run.args[0] === 'render');
+  assert.deepEqual(render.args.slice(-2),['--output','report.html']);
+});
+
 test('Quarto preserves an explicit inspected output filename for materialized Python documents', async () => {
   const {document, fileName} = await fixture('.qmd');
   await fs.writeFile(fileName, '---\nparams:\n  count: !python 1\n  enabled: true\n---\n');
