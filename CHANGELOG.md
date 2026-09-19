@@ -2,11 +2,12 @@
 
 ## [0.0.2] - 2026-09-19
 
-- Use a distinct install version to avoid mixing an already-running 0.0.1 host with newly replaced helper scripts; reload the editor after upgrading.
-- Add actionable recovery guidance for missing Python results and a real R subprocess regression for `start_date`.
-
-- Add `!python` parameter defaults with explicit execution confirmation on opening or refreshing Parameters.
-- Add configurable Python interpreter discovery, date/list/null conversion, and non-executing expression inspection.
+- Add support for file Input.
+- Add a python bridge.
+- Add support for dynamic inline `R` script in the YAML of parameterized R Markdown (`.Rmd`) and Quarto (`.qmd`) documents.
+- Add support for dynamic inline `python` script in the YAML of parameterized R Markdown (`.Rmd`) and Quarto (`.qmd`) documents.
+- Add `!r` with explicit execution confirmation on opening or refreshing Parameters.
+- Add `!python` with explicit execution confirmation on opening or refreshing Parameters.
 - Retain R-expression support and pass evaluated Python defaults explicitly to R Markdown and Quarto rendering.
 
 ## [0.0.1] - 2026-09-17
