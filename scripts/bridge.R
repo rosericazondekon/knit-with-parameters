@@ -20,9 +20,122 @@ bridge_has_expressions <- function(x) {
   any(vapply(x, bridge_has_expressions, logical(1)))
 }
 
-bridge_params <- function(file, evaluate) {
+bridge_python_expr <- function(source) {
+  if (!is.character(source) || length(source) != 1L || is.na(source)) {
+    stop("!python expressions must be YAML scalar text; quote expressions that use YAML collection syntax.", call. = FALSE)
+  }
+  structure(list(source = source), class = "bridge_python_expr")
+}
+
+bridge_front_matter <- function(lines) {
+  # Use knitr's parser when possible, but retain a delimiter-based fallback for
+  # knitr versions whose helper declines otherwise valid front matter.
+  yaml <- getFromNamespace("yaml_front_matter", "knitr")(lines)
+  if (!is.null(yaml)) return(yaml)
+
+  delimiters <- grep("^(---|\\.\\.\\.)\\s*$", lines)
+  if (length(delimiters) < 2L) return(NULL)
+  first <- delimiters[[1L]]
+  second <- delimiters[[2L]]
+  if (!identical(trimws(lines[[first]]), "---") || second <= first + 1L) return(NULL)
+  if (first > 1L && any(nzchar(trimws(lines[seq_len(first - 1L)])))) return(NULL)
+  paste(lines[(first + 1L):(second - 1L)], collapse = "\n")
+}
+
+bridge_python_locations <- function(value, path = character()) {
+  if (inherits(value, "bridge_python_expr")) {
+    return(list(list(path = path, source = value$source)))
+  }
+  if (!is.list(value) || length(value) == 0L) return(list())
+
+  labels <- names(value)
+  if (is.null(labels)) labels <- rep("", length(value))
+  result <- list()
+  for (i in seq_along(value)) {
+    label <- labels[[i]]
+    if (is.na(label) || !nzchar(label)) label <- paste0("[", i, "]")
+    result <- c(result, bridge_python_locations(value[[i]], c(path, label)))
+  }
+  result
+}
+
+bridge_parse_params <- function(file, evaluate, python_values = NULL) {
   bridge_require("knitr")
-  knitr::knit_params(bridge_read_lines(file), evaluate = evaluate)
+  bridge_require("yaml")
+  yaml_text <- bridge_front_matter(bridge_read_lines(file))
+  if (is.null(yaml_text)) {
+    return(list(params = list(), pythonExpressions = setNames(list(), character()), hasRExpressions = FALSE))
+  }
+
+  handlers <- getFromNamespace("knit_params_handlers", "knitr")(evaluate = evaluate)
+  handlers$python <- bridge_python_expr
+  document <- yaml::yaml.load(yaml_text, handlers = handlers, eval.expr = FALSE)
+  if (is.null(document)) document <- list()
+  if (!is.list(document)) stop("Document front matter must be a YAML object.", call. = FALSE)
+
+  locations <- bridge_python_locations(document)
+  python_expressions <- setNames(list(), character())
+  for (location in locations) {
+    path <- location$path
+    allowed <- length(path) %in% c(2L, 3L) && length(path) >= 2L &&
+      identical(path[[1L]], "params") &&
+      (length(path) == 2L || identical(path[[3L]], "value"))
+    if (!allowed) {
+      rendered_path <- if (length(path)) paste(path, collapse = ".") else "<front matter>"
+      stop(
+        "!python is only permitted as a parameter default (params.<name> or params.<name>.value); found it at ",
+        rendered_path, ".", call. = FALSE
+      )
+    }
+    name <- path[[2L]]
+    python_expressions[name] <- list(location$source)
+  }
+
+  raw_params <- document$params
+  if (is.null(raw_params)) raw_params <- list()
+  if (!is.list(raw_params)) stop("YAML field 'params' must be an object.", call. = FALSE)
+  has_r_expressions <- bridge_has_expressions(raw_params)
+
+  if (length(python_expressions)) {
+    if (evaluate) {
+      if (is.null(python_values)) python_values <- list()
+      if (!is.list(python_values) || (length(python_values) && is.null(names(python_values)))) {
+        stop("Request field 'pythonValues' must be an object.", call. = FALSE)
+      }
+      missing <- setdiff(names(python_expressions), names(python_values))
+      if (length(missing)) {
+        stop(
+          "Missing supplied Python result for parameter: ", paste(missing, collapse = ", "),
+          ". The extension host did not supply the evaluated defaults. Reload the editor window, ",
+          "reopen Parameters, and approve expression evaluation. If this persists, reinstall the latest extension build.",
+          call. = FALSE
+        )
+      }
+    }
+
+    for (name in names(python_expressions)) {
+      param <- raw_params[[name]]
+      replacement <- if (evaluate) python_values[[name]] else NULL
+      if (inherits(param, "bridge_python_expr")) param <- list()
+      param["value"] <- list(replacement)
+      raw_params[name] <- list(param)
+    }
+  }
+
+  params <- getFromNamespace("resolve_params", "knitr")(raw_params, evaluate = evaluate)
+  list(
+    params = params,
+    pythonExpressions = python_expressions,
+    hasRExpressions = has_r_expressions
+  )
+}
+
+bridge_params <- function(file, evaluate, python_values = NULL) {
+  parsed <- bridge_parse_params(file, evaluate, python_values)
+  params <- parsed$params
+  attr(params, "pythonExpressions") <- parsed$pythonExpressions
+  attr(params, "hasRExpressions") <- parsed$hasRExpressions
+  params
 }
 
 bridge_scalar <- function(x, default = NULL) {
@@ -101,16 +214,28 @@ bridge_parameter_schema <- function(param) {
 }
 
 bridge_inspect <- function(request) {
-  params <- bridge_params(request$file, evaluate = FALSE)
-  list(hasExpressions = bridge_has_expressions(params))
+  parsed <- bridge_parse_params(request$file, evaluate = FALSE)
+  has_python <- length(parsed$pythonExpressions) > 0L
+  list(
+    hasExpressions = parsed$hasRExpressions || has_python,
+    hasRExpressions = parsed$hasRExpressions,
+    pythonExpressions = parsed$pythonExpressions
+  )
 }
 
 bridge_resolve <- function(request) {
-  params <- bridge_params(request$file, evaluate = TRUE)
-  raw_params <- bridge_params(request$file, evaluate = FALSE)
+  raw <- bridge_parse_params(request$file, evaluate = FALSE)
+  resolved <- bridge_parse_params(
+    request$file,
+    evaluate = TRUE,
+    python_values = request$pythonValues
+  )
+  has_python <- length(raw$pythonExpressions) > 0L
   list(
-    parameters = unname(lapply(params, bridge_parameter_schema)),
-    hasExpressions = bridge_has_expressions(raw_params)
+    parameters = unname(lapply(resolved$params, bridge_parameter_schema)),
+    hasExpressions = raw$hasRExpressions || has_python,
+    hasRExpressions = raw$hasRExpressions,
+    pythonExpressions = raw$pythonExpressions
   )
 }
 
