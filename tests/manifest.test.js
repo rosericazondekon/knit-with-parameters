@@ -16,6 +16,13 @@ test('extension logo and command artwork point to existing bundled assets', () =
   }
 });
 
+test('Positron action bar displays the command title beside its icon', () => {
+  const command = manifest.contributes.commands.find(c => c.command === 'knitWithParameters.open');
+  assert.equal(command.title, 'Knit with Parameters');
+  assert.deepEqual(command.actionBarOptions, {controlType: 'button', displayTitle: true});
+  assert.ok(command.icon.light && command.icon.dark);
+});
+
 test('parameter panel icons point to existing light and dark artwork', () => {
   const source = fs.readFileSync(path.join(__dirname, '../src/extension.ts'), 'utf8');
   const match = source.match(/panel\.iconPath = \{([^}]+)\}/);

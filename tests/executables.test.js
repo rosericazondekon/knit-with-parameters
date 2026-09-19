@@ -44,3 +44,22 @@ test('missing tools give actionable messages and exclude relative PATH entries',
   await assert.rejects(resolveExecutable('quarto','',options([],{env:{PATH:':.:relative:/safe'},executable:async file=>{seen.push(file);return false;}})),/Could not locate quarto/);
   assert.ok(seen.every(file=>file.startsWith('/')));
 });
+test('Python prefers python3 then python on PATH before active environments',async()=>{
+  assert.equal(await resolveExecutable('python','',options(['/custom/bin/python3','/custom/bin/python','/env/bin/python'],{env:{PATH:'/custom/bin',VIRTUAL_ENV:'/env'}})),'/custom/bin/python3');
+  assert.equal(await resolveExecutable('python','',options(['/custom/bin/python'],{env:{PATH:'/custom/bin'}})),'/custom/bin/python');
+  assert.equal(await resolveExecutable('python','',options(['/conda/bin/python'],{env:{PATH:'',CONDA_PREFIX:'/conda'}})),'/conda/bin/python');
+});
+test('Python accepts explicit executable paths and names with spaces',async()=>{
+  const explicit='/Users/test/Python Builds/python 3/bin/python3';
+  assert.equal(await resolveExecutable('python','~/Python Builds/python 3/bin/python3',options([explicit])),explicit);
+  assert.equal(await resolveExecutable('python','my python',options(['/custom/bin/my python'])),'/custom/bin/my python');
+  await assert.rejects(resolveExecutable('python','/missing/python3',options([])),/Configured python executable/);
+  await assert.rejects(resolveExecutable('python','',options([],{env:{PATH:''}})),/Python Path/);
+});
+test('Windows Python prefers python.exe, then python3.exe, and checks active environments',async()=>{
+  const base={platform:'win32',env:{Path:'C:\\tools',LOCALAPPDATA:'C:\\Users\\test\\AppData\\Local',ProgramFiles:'C:\\Program Files'},home:'C:\\Users\\test'};
+  assert.equal(await resolveExecutable('python','',options(['C:\\tools\\python.exe','C:\\tools\\python3.exe'],base)),'C:\\tools\\python.exe');
+  assert.equal(await resolveExecutable('python','',options(['C:\\tools\\python3.exe'],base)),'C:\\tools\\python3.exe');
+  assert.equal(await resolveExecutable('python','',options(['C:\\env\\Scripts\\python.exe'],{...base,env:{...base.env,Path:'',VIRTUAL_ENV:'C:\\env'}})),'C:\\env\\Scripts\\python.exe');
+  assert.equal(await resolveExecutable('python','C:\\My Python\\python.exe',options(['C:\\My Python\\python.exe'],base)),'C:\\My Python\\python.exe');
+});

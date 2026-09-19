@@ -208,8 +208,134 @@ run_bridge_tests <- function(root = ".") {
   bridge_write_quarto_params(c(file_request, list(outputParams = file_yaml)))
   stopifnot(identical(yaml::read_yaml(file_yaml)$data, "selected data.csv"))
 
+  python_side_effect <- file.path(temp, "python-inspect-side-effect")
+  r_side_effect <- file.path(temp, "r-inspect-side-effect")
+  python_fixture <- write_document("python-params.Rmd", c(
+    "params:",
+    paste0("  r_default: !r file.create('", r_side_effect, "')"),
+    paste0("  direct: !python open('", python_side_effect, "', 'w').write('ran')"),
+    "  day: {value: !python \"make_day(2025, 4, 6)\", input: date}",
+    "  items:",
+    "    value: !python '[first, second]'",
+    "    input: select",
+    "    multiple: true",
+    "  optional: !python None"
+  ))
+  python_inspection <- bridge_inspect(list(file = python_fixture))
+  stopifnot(
+    identical(python_inspection$hasExpressions, TRUE),
+    identical(python_inspection$hasRExpressions, TRUE),
+    identical(names(python_inspection$pythonExpressions), c("direct", "day", "items", "optional")),
+    identical(
+      python_inspection$pythonExpressions$direct,
+      paste0("open('", python_side_effect, "', 'w').write('ran')")
+    ),
+    identical(python_inspection$pythonExpressions$day, "make_day(2025, 4, 6)"),
+    identical(python_inspection$pythonExpressions$items, "[first, second]"),
+    identical(python_inspection$pythonExpressions$optional, "None"),
+    !file.exists(r_side_effect),
+    !file.exists(python_side_effect)
+  )
+
+  inspected_params <- bridge_params(python_fixture, evaluate = FALSE)
+  stopifnot(
+    is.null(inspected_params$direct$value),
+    is.null(inspected_params$day$value),
+    identical(inspected_params$day$input, "date"),
+    !file.exists(r_side_effect),
+    !file.exists(python_side_effect)
+  )
+
+  python_values <- list(
+    direct = 7L,
+    day = "2025-04-06",
+    items = list("alpha", "beta"),
+    optional = NULL
+  )
+  python_resolved <- bridge_resolve(list(file = python_fixture, pythonValues = python_values))
+  python_schemas <- setNames(
+    python_resolved$parameters,
+    vapply(python_resolved$parameters, `[[`, character(1), "name")
+  )
+  stopifnot(
+    identical(python_resolved$hasExpressions, TRUE),
+    identical(python_resolved$hasRExpressions, TRUE),
+    identical(python_resolved$pythonExpressions, python_inspection$pythonExpressions),
+    identical(python_schemas$r_default$value, TRUE),
+    identical(python_schemas$direct$value, 7L),
+    identical(python_schemas$day$type, "date"),
+    identical(python_schemas$day$value, "2025-04-06"),
+    identical(unclass(python_schemas$items$value), list("alpha", "beta")),
+    is.null(python_schemas$optional$value),
+    file.exists(r_side_effect),
+    !file.exists(python_side_effect)
+  )
+  unlink(r_side_effect)
+
+  missing_python <- tryCatch(
+    bridge_resolve(list(
+      file = python_fixture,
+      pythonValues = python_values[setdiff(names(python_values), "optional")]
+    )),
+    error = identity
+  )
+  stopifnot(
+    inherits(missing_python, "error"),
+    grepl("Missing supplied Python result for parameter: optional", conditionMessage(missing_python), fixed = TRUE)
+  )
+
+  bad_python_locations <- list(
+    write_document("python-title.Rmd", c("title: !python make_title()", "params:", "  value: 1")),
+    write_document("python-choice.Rmd", c(
+      "params:", "  value:", "    value: one", "    choices: [!python make_choices()]"
+    )),
+    write_document("python-nested-default.Rmd", c(
+      "params:", "  value:", "    value: [!python nested()]"
+    ))
+  )
+  for (bad_python in bad_python_locations) {
+    location_error <- tryCatch(bridge_inspect(list(file = bad_python)), error = identity)
+    stopifnot(
+      inherits(location_error, "error"),
+      grepl("!python is only permitted as a parameter default", conditionMessage(location_error), fixed = TRUE)
+    )
+  }
+
+  python_only <- write_document("python-only.qmd", c("params:", "  value: !python 40 + 2"))
+  python_only_inspection <- bridge_inspect(list(file = python_only))
+  stopifnot(
+    identical(python_only_inspection$hasExpressions, TRUE),
+    identical(python_only_inspection$hasRExpressions, FALSE),
+    identical(python_only_inspection$pythonExpressions, list(value = "40 + 2"))
+  )
+
+  date_fixture <- write_document("python-start-date.qmd", c(
+    "params:", "  start_date:", "    value: !python date.today() - timedelta(days=30)", "    input: date"
+  ))
+  date_request <- file.path(temp, "date-request.json")
+  date_response <- file.path(temp, "date-response.json")
+  bridge_write_json(list(file = date_fixture, pythonValues = list(start_date = "2026-08-20")), date_request)
+  date_run <- system2(file.path(R.home("bin"), "Rscript"),
+    shQuote(c(file.path(root, "scripts", "bridge.R"), "resolve", date_request, date_response)),
+    stdout = TRUE, stderr = TRUE)
+  stopifnot(is.null(attr(date_run, "status")))
+  date_result <- jsonlite::fromJSON(date_response, simplifyVector = FALSE)
+  stopifnot(identical(date_result$parameters[[1L]]$name, "start_date"),
+            identical(date_result$parameters[[1L]]$value, "2026-08-20"))
+  stale_host <- tryCatch(bridge_resolve(list(file = date_fixture)), error = identity)
+  stopifnot(inherits(stale_host, "error"),
+            grepl("Reload the editor window", conditionMessage(stale_host), fixed = TRUE))
+
   no_expr <- write_document("plain.Rmd", c("params:", "  value: 1"))
-  stopifnot(identical(bridge_inspect(list(file = no_expr))$hasExpressions, FALSE))
+  plain_inspection <- bridge_inspect(list(file = no_expr))
+  stopifnot(
+    identical(plain_inspection$hasExpressions, FALSE),
+    identical(plain_inspection$hasRExpressions, FALSE),
+    identical(plain_inspection$pythonExpressions, setNames(list(), character()))
+  )
+  empty_json <- file.path(temp, "empty-python-expressions.json")
+  bridge_write_json(plain_inspection, empty_json)
+  stopifnot(any(grepl('"pythonExpressions": {}', readLines(empty_json), fixed = TRUE)))
 
   error_file <- file.path(temp, "error.json")
   secret <- "DO_NOT_ECHO_THIS_SECRET"

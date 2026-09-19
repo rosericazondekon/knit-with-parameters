@@ -32,9 +32,33 @@ function loadExtension(options = {}) {
     constructor() { this.cancelled = false; state.runners ??= []; state.runners.push(this); }
     cancel() { this.cancelled = true; if (this.reject) this.reject(new Cancelled()); }
     async run(command, args, cwd, log) {
-      state.runs.push({command, args, cwd});
+      state.runs.push({command, args, cwd, log});
       if (command === '/detected/quarto') {
-        log(`Output created: ${options.document.fileName}.html\n`);
+        if (args[0] === 'inspect') {
+          const source = args[1];
+          if (options.onQuartoInspect) await options.onQuartoInspect(source);
+          const stem = path.parse(source).name;
+          log(JSON.stringify(options.quartoInspection ?? {formats: {html: {pandoc: {'output-file': `${stem}.html`}}}}));
+          return;
+        }
+        if (options.pauseQuartoRender) {
+          await new Promise((resolve, reject) => { this.reject = reject; this.resolve = resolve; });
+          return;
+        }
+        if (options.quartoFailure) throw new Error('Process exited with status 1. See output.');
+        const outputIndex = args.indexOf('--output');
+        const output = outputIndex >= 0 ? args[outputIndex + 1] : `${options.document.fileName}.html`;
+        log(`Output created: ${output}\n`);
+        return;
+      }
+      if (command === '/detected/python') {
+        const request = JSON.parse(await fs.readFile(args[1], 'utf8'));
+        state.requests.push({mode: 'python', request});
+        if (options.pythonOutput) log(options.pythonOutput);
+        const response = options.pythonResponse ?? {values: options.pythonValues ?? {}};
+        await fs.writeFile(args[2], JSON.stringify(response));
+        if (options.pythonFailure) throw new Error('Process exited with status 1. See output.');
+        if (options.afterPython) await options.afterPython();
         return;
       }
       const mode = args[1];
@@ -44,7 +68,7 @@ function loadExtension(options = {}) {
         await new Promise((resolve, reject) => { this.reject = reject; this.resolve = resolve; });
         return;
       }
-      const response = mode === 'inspect' ? {hasExpressions: false}
+      const response = mode === 'inspect' ? (options.inspection ?? {hasExpressions: false, hasRExpressions: false, pythonExpressions: {}})
         : mode === 'resolve' ? {parameters: options.schema ?? reportSchema}
         : mode === 'render-rmd' ? {output: `${request.file}.html`}
         : {};
@@ -89,13 +113,17 @@ function loadExtension(options = {}) {
         if (options.openDialog) return options.openDialog(dialogOptions);
         return options.openDialogResult;
       },
-      async showWarningMessage(message) { state.warnings.push(message); return options.warningChoice; },
+      async showWarningMessage(message, modal, ...actions) {
+        state.warnings.push(message);
+        if (options.warningHandler) return options.warningHandler(message, modal, actions, state);
+        return options.warningChoice;
+      },
       async showInformationMessage(message, ...actions) { state.infos.push(message); return options.infoChoice && actions.includes(options.infoChoice) ? options.infoChoice : undefined; }
     },
     workspace: {
       get isTrusted() { return options.trusted !== false; },
       async openTextDocument() { return options.document; },
-      getConfiguration() { return {get: (_key, fallback) => fallback}; }
+      getConfiguration() { return {get: (key, fallback) => options.settings?.[key] ?? fallback}; }
     }
   };
   const fakeCore = {eligible: realCore.eligible, validateValues: realCore.validateValues, ProcessRunner: FakeRunner, Cancelled};
@@ -191,6 +219,127 @@ test('dispatches typed Rmd knit values through the bridge fixture', async () => 
   assert.deepEqual(harness.state.opened[0], ['preview', `${fileName}.html`]);
 });
 
+test('declining Python evaluation starts no Python process and does not resolve parameters', async () => {
+  const {document} = await fixture();
+  const secretExpression = "open('/private/secret').read()";
+  const harness = loadExtension({
+    document,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {token: secretExpression}}
+  });
+  const panel = await ready(harness);
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 0);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+  assert.ok(harness.state.discovery.some(item => item.tool === 'python'));
+  assert.match(harness.state.warnings[0], /Python interpreter: \/detected\/python/);
+  assert.match(harness.state.warnings[0], /arbitrary code/i);
+  assert.match(harness.state.warnings[0], /filesystem and network access/i);
+  assert.match(harness.state.warnings[0], /not sandboxed/i);
+  assert.doesNotMatch(harness.state.warnings[0], /private|secret|open\(/i);
+  assert.ok(!panel.webview.messages.some(message => message.type === 'schema'));
+});
+
+test('approved Python values including dates, null, and lists are passed to bridge resolve', async () => {
+  const {document} = await fixture();
+  const expressions = {day: 'date.today()', missing: 'None', items: '[1, "two", None]'};
+  const pythonValues = {day: '2025-03-04', missing: null, items: [1, 'two', null]};
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues,
+    settings: {pythonPath: '/configured/python with spaces'},
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: expressions}
+  });
+  await ready(harness);
+  assert.deepEqual(harness.state.requests.find(request => request.mode === 'python').request, {expressions});
+  assert.deepEqual(harness.state.requests.find(request => request.mode === 'resolve').request.pythonValues, pythonValues);
+  assert.equal(harness.state.discovery.find(item => item.tool === 'python').configured, '/configured/python with spaces');
+  const pythonRun = harness.state.runs.find(run => run.command === '/detected/python');
+  assert.equal(pythonRun.cwd, path.dirname(document.fileName));
+  assert.match(pythonRun.args[0], /scripts\/bridge\.py$/);
+});
+
+test('every refresh obtains fresh Python consent', async () => {
+  const {document} = await fixture();
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {answer: 42},
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {answer: '6 * 7'}}
+  });
+  const panel = await ready(harness);
+  await panel.send({type: 'refresh'});
+  assert.equal(harness.state.warnings.length, 2);
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 2);
+  assert.equal(harness.state.requests.filter(request => request.mode === 'resolve').length, 2);
+});
+
+test('Python structured helper errors win over process errors and helper output is swallowed', async () => {
+  const {document} = await fixture();
+  const helperError = "Parameter 'token' could not be resolved (RuntimeError).";
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonFailure: true,
+    pythonOutput: 'TOP SECRET stdout and stderr', pythonResponse: {error: helperError},
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {token: 'raise_secret()'}}
+  });
+  await ready(harness);
+  assert.ok(harness.state.errors.includes(helperError));
+  assert.doesNotMatch(harness.state.output, /TOP SECRET|raise_secret/);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+});
+
+test('document changes while consent is open prevent Python and R resolution', async () => {
+  const {document, fileName} = await fixture();
+  const harness = loadExtension({
+    document,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {answer: '42'}},
+    warningHandler: async () => {
+      await fs.appendFile(fileName, 'changed during prompt');
+      return 'Evaluate parameters';
+    }
+  });
+  await ready(harness);
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 0);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+  assert.ok(harness.state.errors.some(message => /Document changed during discovery/i.test(message)));
+});
+
+test('trust revoked during consent prevents Python and R resolution', async () => {
+  const {document} = await fixture();
+  const options = {
+    document,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {answer: '42'}},
+    warningHandler: () => { options.trusted = false; return 'Evaluate parameters'; }
+  };
+  const harness = loadExtension(options);
+  await ready(harness);
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 0);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+});
+
+test('disposing during consent prevents Python and R resolution', async () => {
+  const {document} = await fixture();
+  let panel;
+  const harness = loadExtension({
+    document,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {answer: '42'}},
+    warningHandler: () => { panel.dispose(); return 'Evaluate parameters'; }
+  });
+  await harness.invoke();
+  panel = harness.state.panels.at(-1);
+  await panel.send({type: 'ready'});
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 0);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+});
+
+test('a document change caused during Python evaluation prevents R resolution', async () => {
+  const {document, fileName} = await fixture();
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {answer: 42},
+    afterPython: () => fs.appendFile(fileName, 'changed by Python'),
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {answer: '42'}}
+  });
+  await ready(harness);
+  assert.equal(harness.state.runs.filter(run => run.command === '/detected/python').length, 1);
+  assert.ok(!harness.state.requests.some(request => request.mode === 'resolve'));
+  assert.ok(harness.state.errors.some(message => /Document changed during discovery/i.test(message)));
+});
+
 test('Quarto writes and passes every value when the schema is non-empty', async () => {
   const {document, fileName} = await fixture('.qmd');
   const harness = loadExtension({document});
@@ -212,6 +361,90 @@ test('Quarto skips execute params only for an empty schema', async () => {
   assert.ok(!harness.state.requests.some(request => request.mode === 'write-quarto-params'));
   const quarto = harness.state.runs.find(run => run.command === '/detected/quarto');
   assert.deepEqual(quarto.args, ['render', fileName]);
+});
+
+test('Quarto materializes Python defaults in a private sibling and preserves the original output stem', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  const original = '---\nformat: html\nparams:\n  count: !python 6 * 7\n  enabled: true\n---\n\n[data](data/input.csv)\n';
+  await fs.writeFile(fileName, original);
+  let inspectedSource;
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {count: 42},
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {count: '6 * 7'}},
+    onQuartoInspect: async source => {
+      inspectedSource = source;
+      const content = await fs.readFile(source, 'utf8');
+      assert.doesNotMatch(content, /!python/);
+      assert.match(content, /count: 7/);
+      assert.match(content, /data\/input\.csv/);
+      assert.equal((await fs.stat(source)).mode & 0o777, 0o600);
+    }
+  });
+  const panel = await ready(harness);
+  await panel.send({type: 'knit', values: {count: {value: 7}, enabled: {value: true}}});
+
+  assert.equal(await fs.readFile(fileName, 'utf8'), original);
+  assert.equal(path.dirname(inspectedSource), path.dirname(fileName));
+  assert.match(path.basename(inspectedSource), /^\.knit-params-[0-9a-f]{24}\.qmd$/);
+  await assert.rejects(fs.access(inspectedSource));
+  const quartoRuns = harness.state.runs.filter(run => run.command === '/detected/quarto');
+  assert.deepEqual(quartoRuns.map(run => run.args[0]), ['inspect', 'render']);
+  const render = quartoRuns[1];
+  assert.equal(render.cwd, path.dirname(fileName));
+  assert.equal(render.args[1], path.basename(inspectedSource));
+  assert.deepEqual(render.args.slice(-2), ['--output', 'report.html']);
+  assert.equal(harness.state.requests.find(request => request.mode === 'write-quarto-params').request.file, fileName);
+  assert.deepEqual(harness.state.opened, [['preview', 'report.html']]);
+});
+
+test('Quarto preserves an explicit inspected output filename for materialized Python documents', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  await fs.writeFile(fileName, '---\nparams:\n  count: !python 1\n  enabled: true\n---\n');
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {count: 1},
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {count: '1'}},
+    quartoInspection: {formats: {html: {pandoc: {'output-file': 'published/custom.html'}}}}
+  });
+  const panel = await ready(harness);
+  await panel.send({type: 'knit', values: {count: {value: 2}, enabled: {value: false}}});
+  const render = harness.state.runs.filter(run => run.command === '/detected/quarto')[1];
+  // Explicit output metadata remains in the materialized document; no CLI override is needed.
+  assert.ok(!render.args.includes('--output'));
+});
+
+test('Quarto removes a materialized Python source after render failure', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  const original = '---\nparams:\n  count: !python 1\n  enabled: true\n---\n';
+  await fs.writeFile(fileName, original);
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {count: 1}, quartoFailure: true,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {count: '1'}}
+  });
+  const panel = await ready(harness);
+  await panel.send({type: 'knit', values: {count: {value: 2}, enabled: {value: false}}});
+  const source = harness.state.runs.filter(run => run.command === '/detected/quarto')[1].args[1];
+  await assert.rejects(fs.access(source));
+  assert.equal(await fs.readFile(fileName, 'utf8'), original);
+  assert.doesNotMatch(harness.state.output, /completed successfully/);
+});
+
+test('Quarto removes a materialized Python source after cancellation', async () => {
+  const {document, fileName} = await fixture('.qmd');
+  const original = '---\nparams:\n  count: !python 1\n  enabled: true\n---\n';
+  await fs.writeFile(fileName, original);
+  const harness = loadExtension({
+    document, warningChoice: 'Evaluate parameters', pythonValues: {count: 1}, pauseQuartoRender: true,
+    inspection: {hasExpressions: true, hasRExpressions: false, pythonExpressions: {count: '1'}}
+  });
+  const panel = await ready(harness);
+  const knitting = panel.send({type: 'knit', values: {count: {value: 2}, enabled: {value: false}}});
+  await waitFor(() => harness.state.runs.filter(run => run.command === '/detected/quarto').length === 2);
+  const source = harness.state.runs.filter(run => run.command === '/detected/quarto')[1].args[1];
+  await panel.send({type: 'cancel'});
+  await knitting;
+  await assert.rejects(fs.access(source));
+  assert.equal(await fs.readFile(fileName, 'utf8'), original);
+  assert.doesNotMatch(harness.state.output, /completed successfully/);
 });
 
 test('cancel stops an in-flight render and reports ready without success', async () => {
