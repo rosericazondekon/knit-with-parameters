@@ -26,11 +26,12 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 
 1. Open a saved `.Rmd` or `.qmd` report with YAML `params`.
 2. Select **Knit with Parameters** from the editor toolbar or Command Palette.
-3. Clear **Use document default** for values to override, then select **Knit**.
+3. Edit the resolved parameter values as needed, then select **Knit**.
 4. Inspect the rendered output and the **Knit with Parameters** Output channel.
 
-- Supports text, password, numeric, slider, checkbox, date, and single/multiple-select controls.
-- **Use NULL** sends an explicit null override. Overrides do not rewrite the report's YAML.
+- Supports text, password, numeric, slider, checkbox, date, file, and single/multiple-select controls.
+- File parameters provide an editable path and **Browse…** button. Browse opens an in-editor file picker: select folders to navigate, `..` to go up, or **Enter folder path…** to jump to a directory. Select a file to use it. Paths are relative to the report directory; file contents are not uploaded.
+- Controls start with the document's resolved values. Every value, including unchanged values, is submitted explicitly; **Use NULL** sends null. Rendering does not rewrite the report's YAML.
 - Save and refresh the form after editing the report; **Cancel** stops an active operation.
 - Only run trusted reports: parameter expressions and rendering execute code. Password masking cannot prevent report code from exposing secrets.
 
