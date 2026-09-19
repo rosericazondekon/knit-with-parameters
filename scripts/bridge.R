@@ -33,7 +33,7 @@ bridge_scalar <- function(x, default = NULL) {
 bridge_input_type <- function(param) {
   input <- tolower(as.character(bridge_scalar(param$input, "")))
   if (identical(input, "number")) input <- "numeric"
-  supported <- c("numeric", "date", "text", "password", "select", "checkbox", "slider")
+  supported <- c("numeric", "date", "text", "password", "select", "checkbox", "slider", "file")
   if (input %in% supported) return(input)
   if (nzchar(input)) stop("Unsupported parameter input type: ", input, call. = FALSE)
 
@@ -152,12 +152,8 @@ bridge_overrides <- function(request) {
   result <- list()
   for (name in names(submitted)) {
     selection <- submitted[[name]]
-    if (!is.list(selection) || is.null(selection$useDefault) || length(selection$useDefault) != 1L) {
-      stop("Parameter '", name, "' must specify useDefault.", call. = FALSE)
-    }
-    if (isTRUE(selection$useDefault)) next
-    if (!"value" %in% names(selection)) {
-      stop("Parameter '", name, "' must specify value when useDefault is false.", call. = FALSE)
+    if (!is.list(selection) || !"value" %in% names(selection)) {
+      stop("Parameter '", name, "' must specify value.", call. = FALSE)
     }
     value <- bridge_override_value(selection$value, definitions[[name]])
     result[name] <- list(value)

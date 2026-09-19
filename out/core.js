@@ -15,12 +15,8 @@ function validateValues(input, schema) {
     const result = Object.create(null);
     for (const [name, selection] of entries) {
         const p = schema.find(x => x.name === name);
-        if (!p || !selection || typeof selection !== 'object' || typeof selection.useDefault !== 'boolean')
+        if (!p || !selection || typeof selection !== 'object' || Array.isArray(selection) || !Object.prototype.hasOwnProperty.call(selection, 'value'))
             throw new Error('Invalid parameter selection.');
-        if (selection.useDefault) {
-            result[name] = { useDefault: true };
-            continue;
-        }
         const v = selection.value;
         if (v === undefined)
             throw new Error(`Missing value for ${name}.`);
@@ -45,7 +41,7 @@ function validateValues(input, schema) {
                     throw new Error(`Invalid date for ${name}.`);
             }
         }
-        result[name] = { useDefault: false, value: v };
+        result[name] = { value: v };
     }
     return result;
 }

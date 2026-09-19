@@ -42,6 +42,7 @@ const node_crypto_1 = require("node:crypto");
 const core_1 = require("./core");
 const executables_1 = require("./executables");
 const preview_1 = require("./preview");
+const filePicker_1 = require("./filePicker");
 function activate(context) {
     const output = vscode.window.createOutputChannel('Knit with Parameters');
     context.subscriptions.push(output, vscode.commands.registerCommand('knitWithParameters.open', async () => {
@@ -69,6 +70,7 @@ function activate(context) {
         let busy = false;
         let disposed = false;
         let runner;
+        let picking = false;
         const config = () => vscode.workspace.getConfiguration('knitWithParameters', document.uri);
         const findTool = async (tool) => {
             const setting = tool === 'quarto' ? 'quartoPath' : 'rscriptPath';
@@ -185,6 +187,41 @@ function activate(context) {
             }
             else if (message.type === 'refresh')
                 await refresh();
+            else if (message.type === 'pickFile') {
+                const name = message.name;
+                const requestId = message.requestId;
+                if (disposed || typeof name !== 'string' || !Number.isSafeInteger(requestId) || requestId <= 0 ||
+                    !schema.some(parameter => parameter.name === name && parameter.type === 'file'))
+                    return;
+                const blocked = !vscode.workspace.isTrusted ? 'Trust this workspace before selecting a file.'
+                    : busy ? 'Wait for the current operation to finish before selecting a file.'
+                        : picking ? 'A file picker is already open. Complete or cancel that dialog first.'
+                            : !schemaReady ? 'Refresh parameters before selecting a file.' : '';
+                if (blocked) {
+                    post({ type: 'filePicked', name, requestId, value: null, error: blocked });
+                    return;
+                }
+                const selectionSchema = schema;
+                picking = true;
+                post({ type: 'filePickerOpened', name, requestId });
+                let value = null;
+                let pickerError = '';
+                try {
+                    const picked = await (0, filePicker_1.pickInputFile)(path.dirname(document.fileName));
+                    if (picked)
+                        value = path.relative(path.dirname(document.fileName), picked);
+                }
+                catch {
+                    value = null;
+                    pickerError = 'Unable to open the file picker. Enter the file path manually or reload the editor window.';
+                }
+                finally {
+                    picking = false;
+                }
+                if (schema === selectionSchema && !busy && !disposed && vscode.workspace.isTrusted) {
+                    post({ type: 'filePicked', name, requestId, value, ...(pickerError ? { error: pickerError } : {}) });
+                }
+            }
             else if (message.type === 'knit') {
                 await operation(async (dir) => {
                     if (!vscode.workspace.isTrusted)
@@ -194,7 +231,7 @@ function activate(context) {
                     const values = (0, core_1.validateValues)(message.values, schema);
                     for (const p of schema) {
                         if (p.type === 'password') {
-                            const value = values[p.name].useDefault ? p.value : values[p.name].value;
+                            const value = values[p.name].value;
                             if (typeof value === 'string' && value)
                                 secrets.push(value);
                         }
@@ -209,11 +246,11 @@ function activate(context) {
                     }
                     else {
                         const params = path.join(dir, 'params.yml');
-                        const hasOverrides = Object.values(values).some(v => !v.useDefault);
-                        if (hasOverrides)
+                        const hasParameters = Object.keys(values).length > 0;
+                        if (hasParameters)
                             await bridge('write-quarto-params', dir, values, params);
                         const args = ['render', document.fileName];
-                        if (hasOverrides)
+                        if (hasParameters)
                             args.push('--execute-params', params);
                         let renderLog = '';
                         await runner.run(await findTool('quarto'), args, path.dirname(document.fileName), text => {

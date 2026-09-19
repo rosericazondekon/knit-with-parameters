@@ -5,7 +5,7 @@ export interface Parameter {
   choices: {label: string; value: unknown}[]; multiple: boolean;
   min?: number | null; max?: number | null; step?: number | null;
 }
-export type Values = Record<string, {useDefault: boolean; value?: unknown}>;
+export type Values = Record<string, {value: unknown}>;
 export const eligible = (file: string): boolean => /\.(rmd|qmd)$/i.test(file);
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 export function validateValues(input: unknown, schema: Parameter[]): Values {
@@ -15,8 +15,7 @@ export function validateValues(input: unknown, schema: Parameter[]): Values {
   const result: Values = Object.create(null);
   for (const [name, selection] of entries) {
     const p = schema.find(x => x.name === name);
-    if (!p || !selection || typeof selection !== 'object' || typeof selection.useDefault !== 'boolean') throw new Error('Invalid parameter selection.');
-    if (selection.useDefault) { result[name] = {useDefault: true}; continue; }
+    if (!p || !selection || typeof selection !== 'object' || Array.isArray(selection) || !Object.prototype.hasOwnProperty.call(selection, 'value')) throw new Error('Invalid parameter selection.');
     const v = selection.value;
     if (v === undefined) throw new Error(`Missing value for ${name}.`);
     if (v !== null) {
@@ -32,7 +31,7 @@ export function validateValues(input: unknown, schema: Parameter[]): Values {
         if (p.type === 'date' && (!/^\d{4}-\d{2}-\d{2}$/.test(v) || !Number.isFinite(Date.parse(v)) || new Date(v).toISOString().slice(0, 10) !== v)) throw new Error(`Invalid date for ${name}.`);
       }
     }
-    result[name] = {useDefault: false, value: v};
+    result[name] = {value: v};
   }
   return result;
 }

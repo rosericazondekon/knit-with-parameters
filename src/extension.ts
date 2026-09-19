@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { Cancelled, eligible, Parameter, ProcessRunner, validateValues, Values } from './core';
 import { resolveExecutable, Tool } from './executables';
 import { previewOutput, quartoOutputPaths } from './preview';
+import { pickInputFile } from './filePicker';
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('Knit with Parameters');
@@ -29,6 +30,7 @@ export function activate(context: vscode.ExtensionContext): void {
     let busy = false;
     let disposed = false;
     let runner: ProcessRunner | undefined;
+    let picking = false;
     const config = () => vscode.workspace.getConfiguration('knitWithParameters', document.uri);
     const findTool = async (tool: Tool) => {
       const setting = tool === 'quarto' ? 'quartoPath' : 'rscriptPath';
@@ -109,14 +111,44 @@ export function activate(context: vscode.ExtensionContext): void {
         if (busy) { runner?.cancel(); status('Cancelling…'); } else panel.dispose();
       } else if (message.type === 'ready' && !ready) { ready = true; await refresh(); }
       else if (message.type === 'refresh') await refresh();
-      else if (message.type === 'knit') {
+      else if (message.type === 'pickFile') {
+        const name = message.name;
+        const requestId = message.requestId;
+        if (disposed || typeof name !== 'string' || !Number.isSafeInteger(requestId) || requestId <= 0 ||
+          !schema.some(parameter => parameter.name === name && parameter.type === 'file')) return;
+        const blocked = !vscode.workspace.isTrusted ? 'Trust this workspace before selecting a file.'
+          : busy ? 'Wait for the current operation to finish before selecting a file.'
+          : picking ? 'A file picker is already open. Complete or cancel that dialog first.'
+          : !schemaReady ? 'Refresh parameters before selecting a file.' : '';
+        if (blocked) {
+          post({type: 'filePicked', name, requestId, value: null, error: blocked});
+          return;
+        }
+        const selectionSchema = schema;
+        picking = true;
+        post({type: 'filePickerOpened', name, requestId});
+        let value: string | null = null;
+        let pickerError = '';
+        try {
+          const picked = await pickInputFile(path.dirname(document!.fileName));
+          if (picked) value = path.relative(path.dirname(document!.fileName), picked);
+        } catch {
+          value = null;
+          pickerError = 'Unable to open the file picker. Enter the file path manually or reload the editor window.';
+        } finally {
+          picking = false;
+        }
+        if (schema === selectionSchema && !busy && !disposed && vscode.workspace.isTrusted) {
+          post({type: 'filePicked', name, requestId, value, ...(pickerError ? {error: pickerError} : {})});
+        }
+      } else if (message.type === 'knit') {
         await operation(async dir => {
           if (!vscode.workspace.isTrusted) throw new Error('Workspace trust is required.');
           if (!schemaReady || !snapshot || snapshot !== await currentText()) throw new Error('Document changed. Refresh parameters before knitting.');
           const values = validateValues(message.values, schema);
           for (const p of schema) {
             if (p.type === 'password') {
-              const value = values[p.name].useDefault ? p.value : values[p.name].value;
+              const value = values[p.name].value;
               if (typeof value === 'string' && value) secrets.push(value);
             }
           }
@@ -129,10 +161,10 @@ export function activate(context: vscode.ExtensionContext): void {
             rendered = Array.isArray(result) ? result : [result];
           } else {
             const params = path.join(dir, 'params.yml');
-            const hasOverrides = Object.values(values).some(v => !v.useDefault);
-            if (hasOverrides) await bridge('write-quarto-params', dir, values, params);
+            const hasParameters = Object.keys(values).length > 0;
+            if (hasParameters) await bridge('write-quarto-params', dir, values, params);
             const args = ['render', document!.fileName];
-            if (hasOverrides) args.push('--execute-params', params);
+            if (hasParameters) args.push('--execute-params', params);
             let renderLog = '';
             await runner!.run(await findTool('quarto'), args, path.dirname(document!.fileName), text => {
               renderLog = (renderLog + text).slice(-1024 * 1024);

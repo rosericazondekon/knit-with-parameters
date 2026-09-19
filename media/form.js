@@ -12,6 +12,24 @@
 
   let parameterRows = [];
   let busy = false;
+  let fileRequestId = 0;
+
+  function clearFileRequest(row, clearStatus) {
+    if (!row || row.type !== 'file' || row.requestId === undefined) return;
+    if (row.fileRequestTimer !== undefined) {
+      window.clearTimeout(row.fileRequestTimer);
+    }
+    row.requestId = undefined;
+    row.fileRequestTimer = undefined;
+    row.awaitingFilePickerAck = false;
+    if (row.browseButton) row.browseButton.textContent = 'Browse…';
+    if (clearStatus) setStatus('');
+    applyRowState(row);
+  }
+
+  function clearAllFileRequests(clearStatus) {
+    parameterRows.forEach(row => clearFileRequest(row, clearStatus));
+  }
 
   function setStatus(text) {
     status.textContent = typeof text === 'string' ? text : '';
@@ -40,11 +58,10 @@
   }
 
   function applyRowState(row) {
-    const useDefault = row.defaultInput.checked;
     const isNull = row.nullInput.checked;
-    row.defaultInput.disabled = busy;
-    row.nullInput.disabled = busy || useDefault;
-    row.control.disabled = busy || useDefault || isNull;
+    row.nullInput.disabled = busy;
+    row.control.disabled = busy || isNull;
+    if (row.browseButton) row.browseButton.disabled = busy || isNull || row.requestId !== undefined;
     row.control.setAttribute('aria-disabled', String(row.control.disabled));
   }
 
@@ -57,6 +74,7 @@
 
   function setBusy(nextBusy) {
     busy = Boolean(nextBusy);
+    if (busy) clearAllFileRequests(false);
     form.setAttribute('aria-busy', String(busy));
     applyState();
   }
@@ -137,6 +155,7 @@
 
   function renderSchema(message) {
     const parameters = Array.isArray(message.parameters) ? message.parameters : [];
+    clearAllFileRequests(true);
     fields.replaceChildren();
     parameterRows = [];
     title.textContent = message.file ? `Knit ${message.file}` : 'Knit with parameters';
@@ -170,24 +189,43 @@
       controlWrap.append(control);
       row.append(controlWrap);
 
-      const defaultLabel = document.createElement('label');
-      defaultLabel.className = 'choice-toggle';
-      const defaultInput = document.createElement('input');
-      defaultInput.type = 'checkbox';
-      defaultInput.checked = true;
-      defaultLabel.append(defaultInput, document.createTextNode(' Use document default'));
-      row.append(defaultLabel);
-
       const nullLabel = document.createElement('label');
       nullLabel.className = 'choice-toggle';
       const nullInput = document.createElement('input');
       nullInput.type = 'checkbox';
+      nullInput.checked = parameter.value === null;
       nullLabel.append(nullInput, document.createTextNode(' Use NULL'));
       row.append(nullLabel);
 
-      const parameterRow = { parameter, control, choices, type, defaultInput, nullInput };
-      defaultInput.addEventListener('change', () => applyRowState(parameterRow));
-      nullInput.addEventListener('change', () => applyRowState(parameterRow));
+      const parameterRow = { parameter, control, choices, type, nullInput };
+      if (type === 'file') {
+        const browseButton = document.createElement('button');
+        browseButton.type = 'button';
+        browseButton.textContent = 'Browse…';
+        browseButton.setAttribute('aria-label', `Browse for ${labelText}`);
+        parameterRow.browseButton = browseButton;
+        browseButton.addEventListener('click', () => {
+          if (busy || nullInput.checked || parameterRow.requestId !== undefined) return;
+          parameterRow.requestId = ++fileRequestId;
+          parameterRow.awaitingFilePickerAck = true;
+          browseButton.textContent = 'Opening…';
+          setStatus('Opening file picker…');
+          applyRowState(parameterRow);
+          const requestId = parameterRow.requestId;
+          parameterRow.fileRequestTimer = window.setTimeout(() => {
+            if (parameterRow.requestId !== requestId || !parameterRow.awaitingFilePickerAck) return;
+            clearFileRequest(parameterRow, false);
+            setStatus('File picker did not respond. Reload the editor window and reopen Parameters, then try again.');
+          }, 8000);
+          vscode.postMessage({ type: 'pickFile', name: parameter.name, requestId });
+        });
+        control.addEventListener('input', () => clearFileRequest(parameterRow, true));
+        controlWrap.append(browseButton);
+      }
+      nullInput.addEventListener('change', () => {
+        clearFileRequest(parameterRow, true);
+        applyRowState(parameterRow);
+      });
       parameterRows.push(parameterRow);
       fields.append(row);
     });
@@ -212,8 +250,7 @@
   function collectValues() {
     return parameterRows.reduce((values, row) => {
       values[row.parameter.name] = {
-        useDefault: row.defaultInput.checked,
-        value: row.defaultInput.checked || row.nullInput.checked ? null : controlValue(row)
+        value: row.nullInput.checked ? null : controlValue(row)
       };
       return values;
     }, Object.create(null));
@@ -221,8 +258,8 @@
 
   function validateOverrides() {
     for (const row of parameterRows) {
-      if (!row.defaultInput.checked && !row.nullInput.checked && row.type === 'numeric' && row.control.value === '') {
-        setStatus(`Enter a number for ${row.parameter.label != null ? row.parameter.label : row.parameter.name}, use NULL, or use the document default.`);
+      if (!row.nullInput.checked && row.type === 'numeric' && row.control.value === '') {
+        setStatus(`Enter a number for ${row.parameter.label != null ? row.parameter.label : row.parameter.name}, or use NULL.`);
         row.control.focus();
         return false;
       }
@@ -249,12 +286,32 @@
   cancelButton.addEventListener('click', () => vscode.postMessage({ type: 'cancel' }));
   refreshButton.addEventListener('click', () => {
     if (!busy) {
+      clearAllFileRequests(true);
       vscode.postMessage({ type: 'refresh' });
     }
   });
 
   window.addEventListener('message', (event) => {
     const message = event.data || {};
+    if (message.type === 'filePickerOpened') {
+      const row = parameterRows.find(item => item.type === 'file' && item.parameter.name === message.name);
+      if (!row || !Number.isSafeInteger(message.requestId) || row.requestId !== message.requestId || !row.awaitingFilePickerAck) return;
+      if (row.fileRequestTimer !== undefined) window.clearTimeout(row.fileRequestTimer);
+      row.fileRequestTimer = undefined;
+      row.awaitingFilePickerAck = false;
+      row.browseButton.textContent = 'Selecting…';
+      return;
+    }
+    if (message.type === 'filePicked') {
+      const row = parameterRows.find(item => item.type === 'file' && item.parameter.name === message.name);
+      if (!row || !Number.isSafeInteger(message.requestId) || row.requestId !== message.requestId) return;
+      clearFileRequest(row, true);
+      if (!busy && !row.nullInput.checked && typeof message.value === 'string') {
+        row.control.value = message.value;
+      }
+      if (typeof message.error === 'string' && message.error) setStatus(message.error);
+      return;
+    }
     if (message.type === 'schema') {
       renderSchema(message);
       return;
