@@ -1,4 +1,4 @@
-# Knit with Parameters
+# Knit with Parameters <a href='#'><img src='media/ext-logo.png' align="right" height="139" /></a>
 
 Edit YAML parameters and render parameterized R Markdown or Quarto reports in an integrated panel in Positron or VS Code.
 
