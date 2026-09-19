@@ -9,6 +9,9 @@
 !media/**
 !scripts/
 !scripts/bridge.R
+!scripts/bridge.py
+!node_modules/yaml/
+!node_modules/yaml/**
 !node_modules/
 !node_modules/@posit-dev/
 !node_modules/@posit-dev/positron/

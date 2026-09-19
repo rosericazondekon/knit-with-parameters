@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.2] - 2026-09-19
+
+- Use a distinct install version to avoid mixing an already-running 0.0.1 host with newly replaced helper scripts; reload the editor after upgrading.
+- Add actionable recovery guidance for missing Python results and a real R subprocess regression for `start_date`.
+
+- Add `!python` parameter defaults with explicit execution confirmation on opening or refreshing Parameters.
+- Add configurable Python interpreter discovery, date/list/null conversion, and non-executing expression inspection.
+- Retain R-expression support and pass evaluated Python defaults explicitly to R Markdown and Quarto rendering.
+
 ## [0.0.1] - 2026-09-17
 
 ### Features

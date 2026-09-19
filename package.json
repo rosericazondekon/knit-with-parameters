@@ -2,7 +2,7 @@
   "name": "knit-with-parameters",
   "displayName": "Knit with Parameters",
   "description": "Launches an interactive graphical workspace that prompts you to customize input values defined in the YAML header prior to rendering a parameterized R Markdown or Quarto report.",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "license": "MIT",
   "icon": "media/extension-logo.png",
   "publisher": "local-tools",
@@ -27,6 +27,10 @@
       {
         "command": "knitWithParameters.open",
         "title": "Knit with Parameters",
+        "actionBarOptions": {
+          "controlType": "button",
+          "displayTitle": true
+        },
         "icon": {
           "light": "media/light/file-icon-knit.png",
           "dark": "media/dark/file-icon-knit-dark.png"
@@ -66,6 +70,11 @@
           "type": "string",
           "default": "",
           "description": "Optional Quarto executable override. Empty (or quarto) automatically searches PATH, the IDE's bundled Quarto, and standard installation locations on the extension host."
+        },
+        "knitWithParameters.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional Python executable override. Empty automatically searches Python 3 then Python on PATH and standard installation locations on the extension host. Uses a separate Python process, not the active console. Arbitrary !python expressions are evaluated only after consent."
         }
       }
     }
@@ -84,6 +93,7 @@
     "typescript": "^5.7.0"
   },
   "dependencies": {
-    "@posit-dev/positron": "^0.2.10"
+    "@posit-dev/positron": "^0.2.10",
+    "yaml": "^2.9.1"
   }
 }
