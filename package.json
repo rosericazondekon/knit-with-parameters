@@ -5,7 +5,11 @@
   "version": "0.0.2",
   "license": "MIT",
   "icon": "media/extension-logo.png",
-  "publisher": "local-tools",
+  "publisher": "rosericazondekon",
+  "galleryBanner": {
+    "color": "#282f3a",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
