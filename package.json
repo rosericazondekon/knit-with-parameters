@@ -15,10 +15,25 @@
     "url": "https://github.com/rosericazondekon/knit-with-parameters"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.85.0",
+    "positron": "*"
   },
   "categories": [
-    "Other"
+    "Data Science",
+    "Notebooks",
+    "Visualization"
+  ],
+  "keywords": [
+    "positron",
+    "r",
+    "rmarkdown",
+    "r markdown",
+    "quarto",
+    "knitr",
+    "knit",
+    "parameters",
+    "parameterized reports",
+    "reporting"
   ],
   "main": "./out/extension.js",
   "extensionKind": [
