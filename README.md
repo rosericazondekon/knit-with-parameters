@@ -12,7 +12,7 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 - Quarto CLI for `.qmd` rendering, plus any packages and output tools required by the report.
 - A trusted workspace. Parameter discovery uses a separate Rscript process, not the active R console.
 
-## Install
+## Install from VSIX
 
 1. Open the [latest release](https://github.com/rosericazondekon/knit-with-parameters/releases/latest) and download the `.vsix` file under **Assets** (not the source-code archive).
 2. In **Positron** or **VS Code**, open the Command Palette with **Ctrl+Shift+P** (Windows/Linux) or **Cmd+Shift+P** (macOS).
