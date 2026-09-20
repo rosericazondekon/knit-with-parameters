@@ -10,6 +10,10 @@
     "color": "#282f3a",
     "theme": "dark"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rosericazondekon/knit-with-parameters"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
