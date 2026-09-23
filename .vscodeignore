@@ -19,3 +19,4 @@
 !node_modules/@posit-dev/positron/LICENSE
 !node_modules/@posit-dev/positron/dist/
 !node_modules/@posit-dev/positron/dist/*.js
+_assets/**
