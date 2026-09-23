@@ -53,6 +53,222 @@ test('typed values, empty multiselect, password, and unchanged NULL submit value
   assert.equal(values.password.value,'temporary'); assert.equal(values.optional.value,null);
   dom.window.close();
 });
+test('checkbox labels toggle native controls and submit booleans without string conversion',()=>{
+  const {dom,doc,messages,send}=setup();
+  send({type:'schema',parameters:[{name:'flag',label:'Show <b>plot</b>',description:'Optional output',type:'checkbox',value:false}]});
+  const input=doc.querySelector('input[name=flag]');
+  const label=doc.querySelector('.checkbox-label');
+  const submit=()=>doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.equal(label.htmlFor,input.id);
+  assert.equal(label.textContent,'Show <b>plot</b>');
+  assert.equal(label.querySelector('b'),null);
+  assert.ok(doc.querySelector('legend').hidden);
+  assert.equal(doc.getElementById(input.getAttribute('aria-describedby')).textContent,'Optional output');
+  assert.equal(input.tabIndex,0);
+  submit();
+  assert.equal(messages.at(-1).values.flag.value,false);
+  label.click();
+  assert.equal(input.checked,true);
+  submit();
+  assert.equal(messages.at(-1).values.flag.value,true);
+  label.click();
+  submit();
+  assert.equal(messages.at(-1).values.flag.value,false);
+  send({type:'status',busy:true});
+  label.click();
+  assert.equal(input.checked,false);
+  assert.ok(input.disabled);
+  send({type:'status',busy:false});
+  input.click();
+  submit();
+  assert.equal(messages.at(-1).values.flag.value,true);
+  dom.window.close();
+});
+
+test('radio groups have safe visible legends, clickable choice labels, and descriptions',()=>{
+  const {dom,doc,messages,send}=setup();
+  send({type:'schema',parameters:[{
+    name:'flavor',label:'Choose <script>evil()</script>',description:'Help <b>text</b>',type:'radio',value:'b',
+    choices:[{label:'Alpha <img src=x onerror=evil()>',value:'a'},{label:'Beta',value:'b'}]
+  }]});
+  const fieldset=doc.querySelector('fieldset');
+  const inputs=Array.from(fieldset.querySelectorAll('input'));
+  const labels=fieldset.querySelectorAll('label');
+  assert.equal(fieldset.querySelector('legend').textContent,'Choose <script>evil()</script>');
+  assert.equal(fieldset.querySelector('legend').hidden,false);
+  assert.equal(fieldset.querySelectorAll('script,img,b,select,input[type=text],input[type=hidden]').length,0);
+  assert.equal(labels[0].textContent,'Alpha <img src=x onerror=evil()>');
+  assert.equal(doc.getElementById(fieldset.getAttribute('aria-describedby')).textContent,'Help <b>text</b>');
+  inputs.forEach((input,index)=>{
+    assert.equal(input.type,'radio');
+    assert.equal(labels[index].htmlFor,input.id);
+    assert.equal(input.labels[0],labels[index]);
+    assert.equal(input.hasAttribute('aria-label'),false);
+    assert.equal(input.tabIndex,0);
+    assert.equal(input.getAttribute('aria-describedby'),fieldset.getAttribute('aria-describedby'));
+  });
+  assert.deepEqual(inputs.map(input=>input.checked),[false,true]);
+  labels[0].click();
+  assert.deepEqual(inputs.map(input=>input.checked),[true,false]);
+  // Leave keyboard behavior to the browser rather than intercepting native keys.
+  for(const key of ['ArrowDown','ArrowUp','ArrowLeft','ArrowRight',' ']) {
+    const event=new dom.window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true});
+    inputs[0].dispatchEvent(event);
+    assert.equal(event.defaultPrevented,false);
+  }
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.equal(messages.at(-1).values.flavor.value,'a');
+  dom.window.close();
+});
+
+test('radio groups remain exclusive and independent with odd names and unique IDs',()=>{
+  const {dom,doc,messages,send}=setup();
+  const names=['a b','a-b-0-choice','a?b','a-b','__proto__','" [雪]'];
+  send({type:'schema',parameters:names.map(name=>({
+    name,type:'radio',value:1,choices:[{label:'Same',value:1},{label:'Same',value:2}]
+  }))});
+  const groups=Array.from(doc.querySelectorAll('fieldset'),row=>Array.from(row.querySelectorAll('input')));
+  const ids=Array.from(doc.querySelectorAll('[id]'),element=>element.id);
+  assert.equal(new Set(ids).size,ids.length);
+  assert.equal(new Set(groups.map(inputs=>inputs[0].name)).size,names.length);
+  groups.forEach(inputs=>assert.equal(inputs[0].name,inputs[1].name));
+  groups[0][1].click();
+  assert.deepEqual(groups[0].map(input=>input.checked),[false,true]);
+  groups.slice(1).forEach(inputs=>assert.deepEqual(inputs.map(input=>input.checked),[true,false]));
+  groups[1][1].click();
+  assert.equal(groups[0][1].checked,true);
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  names.forEach((name,index)=>assert.equal(messages.at(-1).values[name].value,index<2?2:1));
+  // A choice ID must not collide with another row's ordinary control ID.
+  send({type:'schema',parameters:[
+    {name:'a b',type:'radio',value:1,choices:[{label:'One',value:1},{label:'Two',value:2}]},
+    {name:'a-b-0-choice',type:'text',value:'unchanged'}
+  ]});
+  const mixedIds=Array.from(doc.querySelectorAll('[id]'),element=>element.id);
+  assert.equal(new Set(mixedIds).size,mixedIds.length);
+  doc.querySelectorAll('.radio-label')[1].click();
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.equal(messages.at(-1).values['a b'].value,2);
+  assert.equal(messages.at(-1).values['a-b-0-choice'].value,'unchanged');
+  dom.window.close();
+});
+
+test('radio defaults and selections preserve false, zero, numeric, and string types',()=>{
+  const {dom,doc,messages,send}=setup();
+  const values=[false,'false',0,'0',2.5,true,'true'];
+  send({type:'schema',parameters:values.map((value,index)=>({
+    name:`typed${index}`,type:'radio',value,choices:values.map(value=>({label:String(value),value}))
+  }))});
+  const groups=Array.from(doc.querySelectorAll('fieldset'),row=>Array.from(row.querySelectorAll('input')));
+  const submit=()=>doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  submit();
+  values.forEach((value,index)=>{
+    assert.equal(groups[index].filter(input=>input.checked).length,1);
+    assert.equal(groups[index][index].checked,true);
+    assert.equal(messages.at(-1).values[`typed${index}`].value,value);
+  });
+  values.forEach((value,index)=>{
+    groups[0][index].click();
+    submit();
+    assert.equal(messages.at(-1).values.typed0.value,value);
+  });
+  // Submission uses the choice mapping, not editable DOM string values.
+  groups[0][0].value='arbitrary text';
+  groups[0][0].click();
+  submit();
+  assert.equal(messages.at(-1).values.typed0.value,false);
+  dom.window.close();
+});
+
+test('NULL radio defaults stay unselected until chosen and reset with the schema',()=>{
+  const {dom,doc,messages,send}=setup();
+  const schema={type:'schema',parameters:[
+    {name:'optional',type:'radio',value:null,choices:[{label:'No',value:false},{label:'Zero',value:0}]},
+    {name:'empty',type:'radio',value:null,choices:[]}
+  ]};
+  const submit=()=>doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  send(schema);
+  const inputs=doc.querySelectorAll('input[type=radio]');
+  assert.equal(doc.querySelectorAll('input:checked').length,0);
+  inputs[0].focus();
+  submit();
+  assert.equal(messages.at(-1).values.optional.value,null);
+  assert.equal(messages.at(-1).values.empty.value,null);
+  inputs[1].click();
+  submit();
+  assert.equal(messages.at(-1).values.optional.value,0);
+  inputs[0].click();
+  submit();
+  assert.equal(messages.at(-1).values.optional.value,false);
+  send(schema);
+  assert.equal(doc.querySelectorAll('input:checked').length,0);
+  submit();
+  assert.equal(messages.at(-1).values.optional.value,null);
+  dom.window.close();
+});
+
+test('radio layout is vertical by default and inline groups wrap horizontally',()=>{
+  const {dom,doc,send}=setup();
+  const style=doc.createElement('style');
+  style.textContent=fs.readFileSync('media/form.css','utf8');
+  doc.head.append(style);
+  send({type:'schema',parameters:[undefined,false,true].map((inline,index)=>({
+    name:`layout${index}`,type:'radio',inline,value:'a',choices:[{label:'A',value:'a'},{label:'B',value:'b'}]
+  }))});
+  const groups=doc.querySelectorAll('.radio-group');
+  assert.equal(groups.length,3);
+  groups.forEach((group,index)=>{
+    const computed=dom.window.getComputedStyle(group);
+    assert.equal(computed.display,'flex');
+    assert.equal(computed.flexDirection,index===2?'row':'column');
+    assert.equal(group.classList.contains('radio-inline'),index===2);
+    if(index===2) assert.equal(computed.flexWrap,'wrap');
+  });
+  const input=doc.querySelector('input');
+  assert.equal(input.matches("input:not([type='checkbox']):not([type='radio'])"),false);
+  assert.equal(dom.window.getComputedStyle(input).flex,'0 0 auto');
+  dom.window.close();
+});
+
+test('busy state disables every radio, blocks edits and submit, and restores selection',()=>{
+  const {dom,doc,messages,send}=setup();
+  const schema={type:'schema',parameters:[false,null].map((value,index)=>({
+    name:`busy${index}`,type:'radio',value,choices:[{label:'No',value:false},{label:'Yes',value:true}]
+  }))};
+  send(schema);
+  const submit=()=>doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  send({type:'status',busy:true});
+  const inputs=Array.from(doc.querySelectorAll('input[type=radio]'));
+  inputs.forEach(input=>{
+    assert.equal(input.disabled,true);
+    assert.equal(input.getAttribute('aria-disabled'),'true');
+    input.click();
+  });
+  doc.querySelectorAll('.radio-label').forEach(label=>label.click());
+  assert.deepEqual(inputs.map(input=>input.checked),[true,false,false,false]);
+  const before=messages.length;
+  submit();
+  assert.equal(messages.length,before);
+  assert.equal(doc.querySelector('#cancel').disabled,false);
+  send({type:'error',text:'Try again'});
+  inputs.forEach(input=>{
+    assert.equal(input.disabled,false);
+    assert.equal(input.getAttribute('aria-disabled'),'false');
+  });
+  submit();
+  assert.equal(messages.at(-1).values.busy0.value,false);
+  assert.equal(messages.at(-1).values.busy1.value,null);
+  inputs[3].click();
+  submit();
+  assert.equal(messages.at(-1).values.busy1.value,true);
+  send({type:'status',busy:true});
+  send(schema);
+  assert.ok(Array.from(doc.querySelectorAll('input[type=radio]')).every(input=>input.disabled));
+  send({type:'status',busy:false});
+  assert.ok(Array.from(doc.querySelectorAll('input[type=radio]')).every(input=>!input.disabled));
+  dom.window.close();
+});
+
 test('NULL defaults stay editable and submit typed values after input or change',()=>{
   const {dom,doc,messages,send}=setup();
   const parameters=[

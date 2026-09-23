@@ -21,8 +21,8 @@ function validateValues(input, schema) {
         if (v === undefined)
             throw new Error(`Missing value for ${name}.`);
         if (v !== null) {
-            if (p.type === 'select') {
-                const choices = p.multiple ? v : [v];
+            if (p.type === 'select' || p.type === 'radio') {
+                const choices = p.type === 'select' && p.multiple ? v : [v];
                 if (!Array.isArray(choices) || !choices.every(x => p.choices.some(c => same(c.value, x))))
                     throw new Error(`Invalid choice for ${name}.`);
             }

@@ -48,6 +48,51 @@ h1 {
   font-weight: 600;
 }
 
+.checkbox-row {
+  border: 0;
+  padding: 0.35rem 1rem;
+}
+
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.radio-group.radio-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.radio-label {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.checkbox-label,
+.radio-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-weight: normal;
+}
+
+.checkbox-label input[type='checkbox'],
+.radio-label input[type='radio'] {
+  flex: 0 0 auto;
+  margin: 0;
+  cursor: inherit;
+}
+
+.checkbox-label:has(input:disabled),
+.radio-label:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .description {
   margin: 0 0 0.65rem;
   color: var(--vscode-descriptionForeground);
@@ -57,7 +102,7 @@ h1 {
   margin-bottom: 0.65rem;
 }
 
-input:not([type='checkbox']),
+input:not([type='checkbox']):not([type='radio']),
 select {
   box-sizing: border-box;
   width: min(100%, 28rem);
@@ -346,7 +391,8 @@ select[multiple] {
   .slider-tick-label { display: none; }
 }
 
-input[type='checkbox'] {
+input[type='checkbox'],
+input[type='radio'] {
   accent-color: var(--vscode-focusBorder);
 }
 

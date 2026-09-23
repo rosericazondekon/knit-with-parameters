@@ -12,6 +12,30 @@ run_bridge_tests <- function(root = ".") {
     path
   }
 
+  radio_file <- write_document("radio.qmd", c(
+    "params:",
+    "  style:", "    input: radioButtons", "    value: points", "    inline: true",
+    "    choices:", "      Points: points", "      Boxplots: boxplot",
+    "  flag:", "    input: radio", "    value: false",
+    "    choices:", "      Enabled: true", "      Disabled: false",
+    "  amount:", "    input: radiobuttons", "    value: 0", "    choices: [0, 1, 2]"
+  ))
+  radios <- bridge_resolve(list(file = radio_file))$parameters
+  stopifnot(
+    all(vapply(radios, function(x) identical(x$type, "radio"), logical(1))),
+    identical(radios[[1L]]$inline, TRUE), identical(radios[[2L]]$inline, FALSE),
+    identical(radios[[1L]]$choices[[2L]], list(label = "Boxplots", value = "boxplot")),
+    identical(radios[[2L]]$value, FALSE), radios[[3L]]$value == 0
+  )
+  radio_yaml <- file.path(temp, "radio-params.yml")
+  bridge_write_quarto_params(list(file = radio_file, outputParams = radio_yaml,
+    values = list(style = list(value = "boxplot"), flag = list(value = FALSE), amount = list(value = 2))))
+  radio_values <- yaml::read_yaml(radio_yaml)
+  stopifnot(identical(radio_values$style, "boxplot"), identical(radio_values$flag, FALSE), radio_values$amount == 2)
+  invalid_radio <- tryCatch(bridge_parameter_schema(list(name = "invalid", input = "radioButtons",
+    value = c("a", "b"), choices = c("a", "b"))), error = identity)
+  stopifnot(inherits(invalid_radio, "error"))
+
   skeleton <- write_document("expression-choices.Rmd", c(
     "params:", "  state:", "    value: AL", "    input: select",
     "    choices: !r state.abb"
@@ -207,11 +231,38 @@ run_bridge_tests <- function(root = ".") {
     identical(quarto_response, list()),
     any(grepl("numeric_alias: 4", yaml_text, fixed = TRUE)),
     any(grepl("event_date: '2025-01-15'", yaml_text, fixed = TRUE)),
-    any(grepl("enabled: yes", yaml_text, fixed = TRUE)),
+    any(grepl("enabled: true", yaml_text, fixed = TRUE)),
     any(grepl("plain_text: ~", yaml_text, fixed = TRUE)),
     any(grepl("tags:", yaml_text, fixed = TRUE)),
     any(grepl("- three", yaml_text, fixed = TRUE))
   )
+
+  boolean_fixture <- write_document("booleans.Rmd", c(
+    "output: md_document", "params:",
+    "  checked:", "    value: false", "    input: checkbox",
+    "  unchecked:", "    value: true", "    input: checkbox"
+  ), c(
+    "`r paste(typeof(params$checked), params$checked, sep = ':')`",
+    "",
+    "`r paste(typeof(params$unchecked), params$unchecked, sep = ':')`"
+  ))
+  boolean_request <- list(file = boolean_fixture, values = list(
+    checked = list(value = TRUE), unchecked = list(value = FALSE)
+  ))
+  boolean_json <- file.path(temp, "booleans.json")
+  bridge_write_json(boolean_request, boolean_json)
+  boolean_request <- jsonlite::fromJSON(boolean_json, simplifyVector = FALSE)
+  stopifnot(identical(bridge_overrides(boolean_request), list(checked = TRUE, unchecked = FALSE)))
+  bridge_write_quarto_params(c(boolean_request, list(outputParams = params_yaml)))
+  stopifnot(
+    identical(yaml::read_yaml(params_yaml), list(checked = TRUE, unchecked = FALSE)),
+    any(grepl("checked: true", readLines(params_yaml), fixed = TRUE)),
+    any(grepl("unchecked: false", readLines(params_yaml), fixed = TRUE))
+  )
+  boolean_render <- bridge_render_rmd(boolean_request)
+  boolean_text <- paste(readLines(boolean_render$output, warn = FALSE), collapse = "\n")
+  stopifnot(grepl("logical:TRUE", boolean_text, fixed = TRUE),
+    grepl("logical:FALSE", boolean_text, fixed = TRUE))
 
   render_fixture <- write_document("render.Rmd", c(
     "title: Render bridge",

@@ -26,6 +26,15 @@ test('typed selections preserve numeric, multi-select and booleans', () => {
   const result = validateValues(submitted,schema);
   assert.equal(result.count.value,3.5); assert.deepEqual(result.region.value,[]); assert.equal(result.enabled.value,false);
 });
+test('radio values must match a single typed choice', () => {
+  const radio=[{name:'choice',type:'radio',choices:[{value:0},{value:false},{value:'points'}]}];
+  for (const value of [0,false,'points',null]) {
+    assert.equal(validateValues({choice:{value}},radio).choice.value,value);
+  }
+  for (const value of ['0','false',['points'],'unknown',true]) {
+    assert.throws(()=>validateValues({choice:{value}},radio),/Invalid choice/);
+  }
+});
 test('reject malformed messages, unknown sets, and entries missing own values', () => {
   for (const value of [null,[],{}, {injected:{value:1}}]) assert.throws(()=>validateValues(value,schema));
   for (const selection of [{}, {value:undefined}, Object.create({value:1}), [], null]) {

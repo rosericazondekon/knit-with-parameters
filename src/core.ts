@@ -4,6 +4,7 @@ export interface Parameter {
   name: string; label: string; type: string; value: unknown;
   choices: {label: string; value: unknown}[]; multiple: boolean;
   selectize?: boolean | null;
+  inline?: boolean;
   min?: number | null; max?: number | null; step?: number | null;
   ticks?: boolean | null; sep?: string | null; pre?: string | null; post?: string | null;
 }
@@ -21,8 +22,8 @@ export function validateValues(input: unknown, schema: Parameter[]): Values {
     const v = selection.value;
     if (v === undefined) throw new Error(`Missing value for ${name}.`);
     if (v !== null) {
-      if (p.type === 'select') {
-        const choices = p.multiple ? v : [v];
+      if (p.type === 'select' || p.type === 'radio') {
+        const choices = p.type === 'select' && p.multiple ? v : [v];
         if (!Array.isArray(choices) || !choices.every(x => p.choices.some(c => same(c.value, x)))) throw new Error(`Invalid choice for ${name}.`);
       } else if (p.type === 'numeric' || p.type === 'slider') {
         if (typeof v !== 'number' || !Number.isFinite(v) || (p.min != null && v < p.min) || (p.max != null && v > p.max)) throw new Error(`Invalid number for ${name}.`);

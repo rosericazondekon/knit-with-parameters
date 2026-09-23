@@ -54,13 +54,17 @@
   }
 
   function makeId(name, suffix) {
-    return `parameter-${String(name).replace(/[^A-Za-z0-9_-]/g, '-')}-${suffix}`;
+    // Put the row discriminator first so odd names cannot collide with choice IDs.
+    return `parameter-${suffix}-${String(name).replace(/[^A-Za-z0-9_-]/g, '-')}`;
   }
 
   function applyRowState(row) {
-    row.control.disabled = busy;
+    const controls = Array.isArray(row.control) ? row.control : [row.control];
+    controls.forEach(control => {
+      control.disabled = busy;
+      control.setAttribute('aria-disabled', String(busy));
+    });
     if (row.browseButton) row.browseButton.disabled = busy || row.requestId !== undefined;
-    row.control.setAttribute('aria-disabled', String(row.control.disabled));
     if (row.selectUi) row.selectUi.updateDisabled();
   }
 
@@ -469,6 +473,22 @@
     let control;
     let choices = [];
 
+    if (type === 'radio') {
+      choices = Array.isArray(parameter.choices) ? parameter.choices : [];
+      const selectedIndex = parameter.value == null ? -1 : choices.findIndex(choice => sameValue(choice.value, parameter.value));
+      // Native groups use a generated name, not the potentially colliding parameter name.
+      control = choices.map((choice, index) => {
+        const input = document.createElement('input');
+        input.type = 'radio';
+        input.id = `${controlId}-choice-${index}`;
+        input.name = controlId;
+        input.value = String(index);
+        input.checked = index === selectedIndex;
+        return input;
+      });
+      return { control, choices, type };
+    }
+
     if (type === 'select') {
       control = document.createElement('select');
       control.multiple = multiple;
@@ -545,7 +565,8 @@
       row.append(legend);
 
       const { control, choices, type } = createControl(parameter, controlId);
-      control.setAttribute('aria-label', String(labelText));
+      const controls = Array.isArray(control) ? control : [control];
+      if (type !== 'radio') control.setAttribute('aria-label', String(labelText));
       const descriptionId = makeId(parameter.name, `description-${index}`);
       if (parameter.description != null && parameter.description !== '') {
         const description = document.createElement('p');
@@ -553,18 +574,46 @@
         description.className = 'description';
         description.textContent = String(parameter.description);
         row.append(description);
-        control.setAttribute('aria-describedby', descriptionId);
+        controls.forEach(input => input.setAttribute('aria-describedby', descriptionId));
+        if (type === 'radio') row.setAttribute('aria-describedby', descriptionId);
       }
 
       const controlWrap = document.createElement('div');
       controlWrap.className = 'control-wrap';
-      controlWrap.append(control);
+      if (type === 'radio') {
+        controlWrap.classList.add('radio-group');
+        controlWrap.classList.toggle('radio-inline', parameter.inline === true);
+        controls.forEach((input, choiceIndex) => {
+          const label = document.createElement('label');
+          label.className = 'radio-label';
+          label.htmlFor = input.id;
+          const text = document.createElement('span');
+          text.textContent = choiceLabel(choices[choiceIndex]);
+          label.append(input, text);
+          controlWrap.append(label);
+        });
+      } else if (type === 'checkbox') {
+        row.classList.add('checkbox-row');
+        legend.hidden = true;
+        control.removeAttribute('aria-label');
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        label.htmlFor = control.id;
+        const text = document.createElement('span');
+        text.textContent = String(labelText);
+        label.append(control, text);
+        controlWrap.append(label);
+      } else {
+        controlWrap.append(control);
+      }
       row.append(controlWrap);
 
       const parameterRow = { parameter, control, choices, type, nullDefault: parameter.value === null };
       const markEdited = () => { parameterRow.nullDefault = false; };
-      control.addEventListener('input', markEdited);
-      control.addEventListener('change', markEdited);
+      controls.forEach(input => {
+        input.addEventListener('input', markEdited);
+        input.addEventListener('change', markEdited);
+      });
       if (type === 'slider') decorateSlider(parameterRow, controlWrap);
       if (type === 'select') decorateSelect(parameterRow, controlWrap, labelText);
       if (type === 'file') {
@@ -598,6 +647,10 @@
   }
 
   function controlValue(row) {
+    if (row.type === 'radio') {
+      const index = row.control.findIndex(input => input.checked);
+      return index < 0 ? null : row.choices[index].value;
+    }
     if (row.type === 'select') {
       const indexes = Array.from(row.control.selectedOptions, (option) => Number(option.value));
       const values = indexes.map((index) => row.choices[index] && row.choices[index].value);

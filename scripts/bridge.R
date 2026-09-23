@@ -146,7 +146,8 @@ bridge_scalar <- function(x, default = NULL) {
 bridge_input_type <- function(param) {
   input <- tolower(as.character(bridge_scalar(param$input, "")))
   if (identical(input, "number")) input <- "numeric"
-  supported <- c("numeric", "date", "text", "password", "select", "checkbox", "slider", "file")
+  if (identical(input, "radiobuttons")) input <- "radio"
+  supported <- c("numeric", "date", "text", "password", "select", "radio", "checkbox", "slider", "file")
   if (input %in% supported) return(input)
   if (nzchar(input)) stop("Unsupported parameter input type: ", input, call. = FALSE)
 
@@ -196,6 +197,9 @@ bridge_parameter_schema <- function(param) {
   type <- bridge_input_type(param)
   value <- param$value
   multiple <- isTRUE(param$multiple) || length(value) > 1L
+  if (identical(type, "radio") && multiple) {
+    stop("Radio parameter '", name, "' must have a single value and cannot use multiple: true.", call. = FALSE)
+  }
   label <- bridge_scalar(param$label, name)
 
   list(
@@ -206,6 +210,7 @@ bridge_parameter_schema <- function(param) {
     choices = bridge_choices(param$choices),
     multiple = multiple,
     selectize = bridge_scalar(param$selectize),
+    inline = isTRUE(param$inline),
     min = bridge_json_value(param$min),
     max = bridge_json_value(param$max),
     step = bridge_json_value(param$step),
@@ -338,7 +343,11 @@ bridge_write_quarto_params <- function(request) {
   parent <- dirname(path.expand(output))
   if (!dir.exists(parent)) stop("outputParams directory does not exist.", call. = FALSE)
   values <- bridge_overrides(request)
-  yaml::write_yaml(bridge_yaml_values(request, values), path.expand(output))
+  # Explicit booleans are understood by both YAML 1.1 and YAML 1.2 readers.
+  yaml::write_yaml(bridge_yaml_values(request, values), path.expand(output),
+    handlers = list(logical = function(x) {
+      structure(ifelse(x, "true", "false"), class = "verbatim")
+    }))
   list()
 }
 
