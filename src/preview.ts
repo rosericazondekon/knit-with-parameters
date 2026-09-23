@@ -19,7 +19,11 @@ export async function previewOutput(file: string): Promise<void> {
   const uri = vscode.Uri.file(file);
   if (/\.html?$/i.test(file)) {
     const positron = tryAcquirePositronApi();
-    if (positron) { positron.window.previewHtml(file); return; }
+    // Early Positron builds may expose an API without the HTML preview method.
+    if (typeof positron?.window?.previewHtml === 'function') {
+      await positron.window.previewHtml(file);
+      return;
+    }
     if (!await vscode.env.openExternal(uri)) throw new Error('Could not open the HTML report in a browser.');
   } else if (/\.(md|markdown)$/i.test(file)) {
     await vscode.commands.executeCommand('markdown.showPreview', uri);

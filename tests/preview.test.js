@@ -11,7 +11,7 @@ function load(positron=true) {
   const original=Module._load;
   Module._load=function(name,parent,isMain){
     if(name==='vscode') return {Uri:{file:f=>f},env:{openExternal:async f=>{calls.push(['external',f]);return true;}},commands:{executeCommand:async(...args)=>calls.push(args)}};
-    if(name==='@posit-dev/positron') return {tryAcquirePositronApi:()=>positron ? {window:{previewHtml:f=>calls.push(['html',f])}} : undefined};
+    if(name==='@posit-dev/positron') return {tryAcquirePositronApi:()=>positron === true ? {window:{previewHtml:f=>calls.push(['html',f])}} : (positron || undefined)};
     return original.call(this,name,parent,isMain);
   };
   try{return {api:require(modulePath),calls};}finally{Module._load=original;}
@@ -30,6 +30,11 @@ test('HTML previews the existing artifact in Positron without rendering again',a
     assert.deepEqual(calls,[['html',file]]);
     const fallback=load(false);await fallback.api.previewOutput(file);
     assert.deepEqual(fallback.calls,[['external',file]]);
+    for (const legacyApi of [{}, {window:{}}, {window:{previewHtml:null}}]) {
+      const legacy=load(legacyApi);
+      await legacy.api.previewOutput(file);
+      assert.deepEqual(legacy.calls,[['external',file]]);
+    }
   }finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 test('Markdown and other outputs use appropriate installed viewers; missing files never preview',async()=>{

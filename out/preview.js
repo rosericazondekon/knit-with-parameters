@@ -56,8 +56,9 @@ async function previewOutput(file) {
     const uri = vscode.Uri.file(file);
     if (/\.html?$/i.test(file)) {
         const positron = (0, positron_1.tryAcquirePositronApi)();
-        if (positron) {
-            positron.window.previewHtml(file);
+        // Early Positron builds may expose an API without the HTML preview method.
+        if (typeof positron?.window?.previewHtml === 'function') {
+            await positron.window.previewHtml(file);
             return;
         }
         if (!await vscode.env.openExternal(uri))

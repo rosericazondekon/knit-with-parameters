@@ -2,10 +2,18 @@
   "name": "knit-with-parameters",
   "displayName": "Knit with Parameters",
   "description": "Launches an interactive graphical workspace that prompts you to customize input values defined in the YAML header prior to rendering a parameterized R Markdown or Quarto report.",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "license": "MIT",
   "icon": "media/extension-logo.png",
   "publisher": "rosericazondekon",
+  "author": {
+    "name": "Gbedegnon Roseric Azondekon",
+    "url": "https://rosericazondekon.github.io"
+  },
+  "homepage": "https://github.com/rosericazondekon/knit-with-parameters",
+  "bugs": {
+    "url": "https://github.com/rosericazondekon/knit-with-parameters/issues"
+  },
   "galleryBanner": {
     "color": "#282f3a",
     "theme": "dark"
@@ -105,12 +113,15 @@
   "scripts": {
     "compile": "tsc -p .",
     "test": "npm run compile && node --test tests/*.test.js",
+    "test:host": "npm run compile && node tests/host/run.js",
+    "test:host:syntax": "node --check tests/host/run.js && node --check tests/host/suite.js",
     "vscode:prepublish": "npm run compile",
     "package": "vsce package --allow-missing-repository"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^3.0.0",
     "jsdom": "^26.1.0",
     "typescript": "^5.7.0"
