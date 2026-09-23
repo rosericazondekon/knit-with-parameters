@@ -58,10 +58,8 @@
   }
 
   function applyRowState(row) {
-    const isNull = row.nullInput.checked;
-    row.nullInput.disabled = busy;
-    row.control.disabled = busy || isNull;
-    if (row.browseButton) row.browseButton.disabled = busy || isNull || row.requestId !== undefined;
+    row.control.disabled = busy;
+    if (row.browseButton) row.browseButton.disabled = busy || row.requestId !== undefined;
     row.control.setAttribute('aria-disabled', String(row.control.disabled));
   }
 
@@ -126,9 +124,7 @@
       } else if (type === 'slider') {
         control.type = 'range';
         addNumberAttributes(control, parameter);
-        if (parameter.value !== undefined && parameter.value !== null) {
-          control.value = String(parameter.value);
-        }
+        control.value = parameter.value !== undefined && parameter.value !== null ? String(parameter.value) : '';
       } else if (type === 'date') {
         control.type = 'date';
         if (parameter.value !== undefined && parameter.value !== null) {
@@ -189,15 +185,10 @@
       controlWrap.append(control);
       row.append(controlWrap);
 
-      const nullLabel = document.createElement('label');
-      nullLabel.className = 'choice-toggle';
-      const nullInput = document.createElement('input');
-      nullInput.type = 'checkbox';
-      nullInput.checked = parameter.value === null;
-      nullLabel.append(nullInput, document.createTextNode(' Use NULL'));
-      row.append(nullLabel);
-
-      const parameterRow = { parameter, control, choices, type, nullInput };
+      const parameterRow = { parameter, control, choices, type, nullDefault: parameter.value === null };
+      const markEdited = () => { parameterRow.nullDefault = false; };
+      control.addEventListener('input', markEdited);
+      control.addEventListener('change', markEdited);
       if (type === 'file') {
         const browseButton = document.createElement('button');
         browseButton.type = 'button';
@@ -205,7 +196,7 @@
         browseButton.setAttribute('aria-label', `Browse for ${labelText}`);
         parameterRow.browseButton = browseButton;
         browseButton.addEventListener('click', () => {
-          if (busy || nullInput.checked || parameterRow.requestId !== undefined) return;
+          if (busy || parameterRow.requestId !== undefined) return;
           parameterRow.requestId = ++fileRequestId;
           parameterRow.awaitingFilePickerAck = true;
           browseButton.textContent = 'Opening…';
@@ -222,10 +213,6 @@
         control.addEventListener('input', () => clearFileRequest(parameterRow, true));
         controlWrap.append(browseButton);
       }
-      nullInput.addEventListener('change', () => {
-        clearFileRequest(parameterRow, true);
-        applyRowState(parameterRow);
-      });
       parameterRows.push(parameterRow);
       fields.append(row);
     });
@@ -250,7 +237,7 @@
   function collectValues() {
     return parameterRows.reduce((values, row) => {
       values[row.parameter.name] = {
-        value: row.nullInput.checked ? null : controlValue(row)
+        value: row.nullDefault ? null : controlValue(row)
       };
       return values;
     }, Object.create(null));
@@ -258,8 +245,8 @@
 
   function validateOverrides() {
     for (const row of parameterRows) {
-      if (!row.nullInput.checked && row.type === 'numeric' && row.control.value === '') {
-        setStatus(`Enter a number for ${row.parameter.label != null ? row.parameter.label : row.parameter.name}, or use NULL.`);
+      if (!row.nullDefault && row.type === 'numeric' && row.control.value === '') {
+        setStatus(`Enter a number for ${row.parameter.label != null ? row.parameter.label : row.parameter.name}.`);
         row.control.focus();
         return false;
       }
@@ -306,8 +293,9 @@
       const row = parameterRows.find(item => item.type === 'file' && item.parameter.name === message.name);
       if (!row || !Number.isSafeInteger(message.requestId) || row.requestId !== message.requestId) return;
       clearFileRequest(row, true);
-      if (!busy && !row.nullInput.checked && typeof message.value === 'string') {
+      if (!busy && typeof message.value === 'string') {
         row.control.value = message.value;
+        row.nullDefault = false;
       }
       if (typeof message.error === 'string' && message.error) setStatus(message.error);
       return;
