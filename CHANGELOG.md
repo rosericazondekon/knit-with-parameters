@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.3] - 2026-09-23
+
+- Add CI/CD test and build pipeline, including real VS Code 1.96.2 and stable extension-host smoke tests.
+- Fall back to the default browser for HTML reports when older Positron APIs lack `previewHtml`.
+- Update extension metadata.
+- Remove `USE NULL` checkbox from parameters form.
+- Add searchable select dropdowns with labeled choices, removable multi-select chips, keyboard navigation, clear controls, and `selectize: false` native fallback.
+- Add Shiny-like numeric sliders with a filled track, moving value label, endpoint labels, and step-based ticks with a bounded scale for large ranges.
+- Support slider display options (`ticks`, `sep`, `pre`, `post`) while preserving numeric submissions.
+
 ## [0.0.2] - 2026-09-19
 
 - Add support for file Input.

@@ -2,7 +2,7 @@
 
 Edit YAML parameters and render parameterized R Markdown or Quarto reports in an integrated panel in Positron or VS Code.
 
-![Version](https://img.shields.io/badge/version-0.0.2-blue)
+![Version](https://img.shields.io/badge/version-0.0.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Requirements
