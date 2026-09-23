@@ -6,6 +6,10 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 ![Version](https://img.shields.io/badge/version-0.0.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+## Demo
+
+![](https://raw.githubusercontent.com/rosericazondekon/knit-with-parameters/master/_assets/knit-with-parameters.gif)
+
 ## Requirements
 
 - Positron or VS Code compatible with the VS Code `^1.85.0` API.
