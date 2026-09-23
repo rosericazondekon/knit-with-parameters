@@ -96,6 +96,136 @@ test('NULL defaults stay editable and submit typed values after input or change'
   assert.equal(messages.at(-1).values.text.value,null);
   dom.window.close();
 });
+test('searchable selects filter labels and support keyboard selection without accepting new values',()=>{
+  const {dom,doc,messages,send}=setup();
+  send({type:'schema',parameters:[
+    {name:'choice',label:'Choice',type:'select',value:null,choices:[
+      {label:'Alpha <b>',value:1},{label:'Beta',value:false},{label:'Beta',value:{id:2}}
+    ]}
+  ]});
+  const native=doc.querySelector('select[name=choice]');
+  const search=doc.querySelector('.selectize-search');
+  assert.ok(native.classList.contains('selectize-native'));
+  assert.equal(native.selectedIndex,-1);
+  assert.equal(search.value,'');
+  assert.equal(search.getAttribute('role'),'combobox');
+  assert.equal(search.getAttribute('aria-expanded'),'false');
+  search.focus();
+  assert.equal(search.getAttribute('aria-expanded'),'true');
+  assert.equal(doc.querySelectorAll('[role=option]').length,3);
+  assert.equal(doc.querySelectorAll('.selectize-dropdown b').length,0);
+  search.value='beta';
+  search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(doc.querySelectorAll('[role=option]').length,2);
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+  assert.equal(native.value,'2');
+  assert.equal(search.value,'Beta');
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).values.choice)),{value:{id:2}});
+  search.focus();
+  search.value='new value';
+  search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(doc.querySelector('.selectize-empty').textContent,'No matches');
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+  assert.equal(native.value,'2');
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+  assert.equal(search.value,'Beta');
+  assert.equal(search.getAttribute('aria-expanded'),'false');
+  dom.window.close();
+});
+
+test('single select clears fully, reopens on click, and consumes Enter without matches',()=>{
+  const {dom,doc,messages,send}=setup();
+  send({type:'schema',parameters:[{name:'choice',type:'select',value:2,choices:[{label:'One',value:1},{label:'Two',value:2}]}]});
+  const native=doc.querySelector('select');
+  const search=doc.querySelector('.selectize-search');
+  doc.querySelector('.selectize-clear').click();
+  assert.equal(native.selectedIndex,-1);
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.equal(messages.at(-1).values.choice.value,null);
+  search.value='two';
+  search.dispatchEvent(new dom.window.Event('input'));
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Enter',cancelable:true}));
+  assert.equal(native.value,'1');
+  assert.equal(search.getAttribute('aria-expanded'),'false');
+  search.click();
+  assert.equal(search.getAttribute('aria-expanded'),'true');
+  assert.equal(doc.querySelectorAll('[role=option]').length,2);
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'ArrowDown',cancelable:true}));
+  assert.ok(search.hasAttribute('aria-activedescendant'));
+  search.value='nothing';
+  search.dispatchEvent(new dom.window.Event('input'));
+  assert.ok(!search.hasAttribute('aria-activedescendant'));
+  const enter=new dom.window.KeyboardEvent('keydown',{key:'Enter',cancelable:true});
+  search.dispatchEvent(enter);
+  assert.ok(enter.defaultPrevented);
+  assert.equal(native.value,'1');
+  dom.window.close();
+});
+
+test('multiple searchable select renders removable chips, clears, and tracks native changes',()=>{
+  const {dom,doc,messages,send}=setup();
+  send({type:'schema',parameters:[{name:'tags',label:'Tags',type:'select',multiple:true,value:['A'],choices:[
+    {label:'Same',value:'A'},{label:'Same',value:'B'},{label:'Other',value:3}
+  ]}]});
+  const native=doc.querySelector('select[name=tags]');
+  const search=doc.querySelector('.selectize-search');
+  assert.equal(doc.querySelectorAll('.selectize-chip').length,1);
+  assert.equal(doc.querySelector('.selectize-chip span').textContent,'Same');
+  search.focus();
+  search.value='same';
+  search.dispatchEvent(new dom.window.Event('input',{bubbles:true}));
+  assert.equal(doc.querySelectorAll('[role=option]').length,1);
+  doc.querySelector('[role=option]').click();
+  assert.deepEqual(Array.from(native.selectedOptions,option=>option.value),['0','1']);
+  assert.equal(doc.querySelectorAll('.selectize-chip').length,2);
+  send({type:'status',busy:true});
+  assert.ok(doc.querySelector('.selectize-remove').disabled);
+  send({type:'status',busy:false});
+  search.value='';
+  search.dispatchEvent(new dom.window.KeyboardEvent('keydown',{key:'Backspace',cancelable:true}));
+  assert.deepEqual(Array.from(native.selectedOptions,option=>option.value),['0']);
+  native.options[1].selected=true;
+  native.dispatchEvent(new dom.window.Event('change'));
+  doc.querySelectorAll('.selectize-remove')[0].click();
+  assert.deepEqual(Array.from(native.selectedOptions,option=>option.value),['1']);
+  doc.querySelector('.selectize-clear').click();
+  assert.equal(native.selectedOptions.length,0);
+  assert.equal(doc.querySelectorAll('.selectize-chip').length,0);
+  native.options[2].selected=true;
+  native.dispatchEvent(new dom.window.Event('change',{bubbles:true}));
+  assert.equal(doc.querySelector('.selectize-chip span').textContent,'Other');
+  doc.querySelector('form').dispatchEvent(new dom.window.Event('submit',{cancelable:true}));
+  assert.deepEqual(JSON.parse(JSON.stringify(messages.at(-1).values.tags.value)),[3]);
+  dom.window.close();
+});
+
+test('select UI closes outside, disables while busy, cleans up on refresh, and supports native fallback',()=>{
+  const {dom,doc,send}=setup();
+  send({type:'schema',parameters:[
+    {name:'enhanced',type:'select',value:'A',choices:[{label:'A',value:'A'}]},
+    {name:'native',type:'select',selectize:false,value:'B',choices:[{label:'B',value:'B'}]},
+    {name:'empty',type:'select',value:null,choices:[]}
+  ]});
+  assert.equal(doc.querySelectorAll('.selectize-control').length,2);
+  assert.ok(!doc.querySelector('select[name=native]').classList.contains('selectize-native'));
+  const searches=doc.querySelectorAll('.selectize-search');
+  searches[1].focus();
+  assert.equal(doc.querySelector('.selectize-empty').textContent,'No options');
+  doc.body.dispatchEvent(new dom.window.MouseEvent('mousedown',{bubbles:true}));
+  assert.equal(searches[1].getAttribute('aria-expanded'),'false');
+  send({type:'status',busy:true});
+  assert.ok(searches[0].disabled);
+  assert.ok(doc.querySelector('.selectize-clear').disabled);
+  send({type:'status',busy:false});
+  assert.ok(!searches[0].disabled);
+  send({type:'schema',parameters:[{name:'replacement',type:'text',value:'ok'}]});
+  assert.equal(doc.querySelectorAll('.selectize-control').length,0);
+  dom.window.close();
+});
+
 test('year sliders show endpoints, step ticks, and live formatted values',()=>{
   const {dom,doc,messages,send}=setup();
   send({type:'schema',parameters:[{name:'year',label:'Year',type:'slider',min:2010,max:2018,step:1,value:2017,sep:''}]});

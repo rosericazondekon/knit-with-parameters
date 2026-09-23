@@ -3,6 +3,7 @@ import { spawn, ChildProcess } from 'node:child_process';
 export interface Parameter {
   name: string; label: string; type: string; value: unknown;
   choices: {label: string; value: unknown}[]; multiple: boolean;
+  selectize?: boolean | null;
   min?: number | null; max?: number | null; step?: number | null;
   ticks?: boolean | null; sep?: string | null; pre?: string | null; post?: string | null;
 }

@@ -205,6 +205,7 @@ bridge_parameter_schema <- function(param) {
     value = bridge_json_value(value, multiple),
     choices = bridge_choices(param$choices),
     multiple = multiple,
+    selectize = bridge_scalar(param$selectize),
     min = bridge_json_value(param$min),
     max = bridge_json_value(param$max),
     step = bridge_json_value(param$step),

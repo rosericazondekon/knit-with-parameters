@@ -31,6 +31,15 @@ run_bridge_tests <- function(root = ".") {
   stopifnot(length(choices_roundtrip) == 50L,
             identical(choices_roundtrip[[1L]], list(label = "AL", value = "AL")))
 
+  native_select <- write_document("native-select.Rmd", c(
+    "params:", "  choice:", "    value: one", "    input: select",
+    "    choices: [one, two]", "    selectize: false"
+  ))
+  native_schema <- bridge_resolve(list(file = native_select))$parameters[[1L]]
+  stopifnot(identical(native_schema$selectize, FALSE), is.null(state_schema$selectize))
+  bridge_write_json(native_schema, choices_json)
+  stopifnot(identical(jsonlite::fromJSON(choices_json)$selectize, FALSE))
+
   named_choices <- write_document("named-expression-choices.qmd", c(
     "params:", "  state:", "    value: AL", "    input: select",
     "    choices: !r setNames(state.abb, state.name)"
