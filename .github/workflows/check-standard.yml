@@ -1,0 +1,87 @@
+name: Test and Build
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-tests:
+    name: TypeScript and JavaScript tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  python-tests:
+    name: Python bridge tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  r-tests:
+    name: R bridge tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-pandoc@v2
+      - name: Install bridge dependencies
+        shell: Rscript {0}
+        run: install.packages(c("knitr", "jsonlite", "yaml", "rmarkdown"))
+      - run: Rscript tests/bridge-tests.R
+
+  package:
+    name: Build VSIX artifact
+    needs: [node-tests, python-tests, r-tests]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Prepare artifact directory
+        run: mkdir -p dist
+      - name: Package extension
+        run: npm run package -- --out dist/
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: knit-with-parameters-vsix-${{ github.run_number }}
+          path: dist/*.vsix
+          if-no-files-found: error
+          retention-days: 14
