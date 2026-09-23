@@ -74,8 +74,129 @@ select[multiple] {
   min-height: 6rem;
 }
 
-input[type='range'] {
+.slider-control {
+  width: min(100%, 28rem);
+  --slider-accent: var(--vscode-focusBorder, #428bca);
+  --slider-track: var(--vscode-input-background, #ddd);
+}
+
+.slider-labels {
+  position: relative;
+  height: 3.2rem;
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+}
+
+.slider-min,
+.slider-max {
+  position: absolute;
+  top: 0;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-input-background);
+}
+
+.slider-min { left: 0; }
+.slider-max { right: 0; }
+
+.slider-value {
+  position: absolute;
+  bottom: 0.2rem;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  color: var(--vscode-button-foreground, white);
+  background: var(--vscode-button-background, #337ab7);
+}
+
+.slider-control input[type='range'] {
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 1.4rem;
+  min-height: 0;
+  margin: 0;
   padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.slider-control input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, var(--slider-accent) var(--slider-progress), var(--slider-track) var(--slider-progress));
+  box-shadow: inset 0 0 0 1px var(--vscode-widget-border, #888);
+}
+
+.slider-control input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--slider-accent);
+  background: var(--vscode-editor-background, white);
+  box-shadow: 0 1px 3px #0004;
+}
+
+.slider-control input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--slider-track);
+}
+
+.slider-control input[type='range']::-moz-range-progress {
+  height: 6px;
+  background: var(--slider-accent);
+}
+
+.slider-control input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid var(--slider-accent);
+  background: var(--vscode-editor-background, white);
+}
+
+.slider-scale {
+  position: relative;
+  height: 2rem;
+  margin: 0 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.slider-tick {
+  position: absolute;
+  top: 0;
+  height: 4px;
+  border-left: 1px solid currentColor;
+}
+
+.slider-tick-major { height: 8px; }
+
+.slider-tick-label {
+  position: absolute;
+  top: 10px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.slider-control:has(input:disabled) {
+  opacity: 0.55;
+}
+
+@media (max-width: 420px) {
+  .slider-tick-label { display: none; }
 }
 
 input[type='checkbox'] {

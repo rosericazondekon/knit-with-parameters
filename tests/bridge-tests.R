@@ -86,7 +86,11 @@ run_bridge_tests <- function(root = ".") {
     "    value: 5",
     "    input: slider",
     "    min: 0",
-    "    max: 10"
+    "    max: 10",
+    "    ticks: false",
+    "    sep: ''",
+    "    pre: '$'",
+    "    post: ' USD'"
   ))
 
   inspection <- bridge_inspect(list(file = fixture))
@@ -113,13 +117,48 @@ run_bridge_tests <- function(root = ".") {
     identical(schemas$tags$multiple, TRUE),
     identical(unclass(schemas$tags$value), c("one", "two")),
     identical(schemas$enabled$type, "checkbox"),
-    identical(schemas$threshold$type, "slider")
+    identical(schemas$threshold$type, "slider"),
+    identical(schemas$threshold$ticks, FALSE),
+    identical(schemas$threshold$sep, ""),
+    identical(schemas$threshold$pre, "$"),
+    identical(schemas$threshold$post, " USD")
   )
 
   schema_json <- file.path(temp, "schema.json")
   bridge_write_json(resolved, schema_json)
   schema_roundtrip <- jsonlite::fromJSON(schema_json, simplifyVector = FALSE)
   stopifnot(length(schema_roundtrip$parameters) == 8L)
+  slider_roundtrip <- schema_roundtrip$parameters[[8L]]
+  stopifnot(
+    identical(slider_roundtrip$ticks, FALSE),
+    identical(slider_roundtrip$sep, ""),
+    identical(slider_roundtrip$pre, "$"),
+    identical(slider_roundtrip$post, " USD")
+  )
+
+  slider_fixture <- write_document("slider-display.qmd", c(
+    "params:",
+    "  formatted:", "    value: 1000", "    input: slider",
+    "    min: 0", "    max: 5000",
+    "    ticks: true", "    sep: ','", "    pre: ''", "    post: ''",
+    "  plain:", "    value: 5", "    input: slider",
+    "    min: 0", "    max: 10"
+  ))
+  slider_schemas <- bridge_resolve(list(file = slider_fixture))$parameters
+  display_fields <- c("ticks", "sep", "pre", "post")
+  stopifnot(
+    identical(slider_schemas[[1L]][display_fields],
+      list(ticks = TRUE, sep = ",", pre = "", post = "")),
+    all(vapply(slider_schemas[[2L]][display_fields], is.null, logical(1)))
+  )
+  slider_json <- file.path(temp, "slider-display.json")
+  bridge_write_json(slider_schemas, slider_json)
+  slider_display_roundtrip <- jsonlite::fromJSON(slider_json, simplifyVector = FALSE)
+  stopifnot(
+    identical(slider_display_roundtrip[[1L]][display_fields],
+      list(ticks = TRUE, sep = ",", pre = "", post = "")),
+    all(vapply(slider_display_roundtrip[[2L]][display_fields], is.null, logical(1)))
+  )
 
   override_request <- list(
     file = fixture,

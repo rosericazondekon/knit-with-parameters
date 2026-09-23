@@ -208,6 +208,10 @@ bridge_parameter_schema <- function(param) {
     min = bridge_json_value(param$min),
     max = bridge_json_value(param$max),
     step = bridge_json_value(param$step),
+    ticks = bridge_scalar(param$ticks),
+    sep = bridge_scalar(param$sep),
+    pre = bridge_scalar(param$pre),
+    post = bridge_scalar(param$post),
     placeholder = bridge_scalar(param$placeholder),
     description = bridge_scalar(param$description)
   )

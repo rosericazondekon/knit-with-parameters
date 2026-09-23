@@ -4,6 +4,7 @@ export interface Parameter {
   name: string; label: string; type: string; value: unknown;
   choices: {label: string; value: unknown}[]; multiple: boolean;
   min?: number | null; max?: number | null; step?: number | null;
+  ticks?: boolean | null; sep?: string | null; pre?: string | null; post?: string | null;
 }
 export type Values = Record<string, {value: unknown}>;
 export const eligible = (file: string): boolean => /\.(rmd|qmd)$/i.test(file);

@@ -95,6 +95,110 @@
     });
   }
 
+  function sliderBounds(parameter) {
+    const min = typeof parameter.min === 'number' && Number.isFinite(parameter.min) ? parameter.min : 0;
+    const max = typeof parameter.max === 'number' && Number.isFinite(parameter.max) ? parameter.max : 100;
+    return { min, max: Math.max(min, max) };
+  }
+
+  function sliderStep(parameter, min, max) {
+    if (typeof parameter.step === 'number' && Number.isFinite(parameter.step) && parameter.step > 0) {
+      return parameter.step;
+    }
+    const span = max - min;
+    // Use finer increments for fractional bounds and small ranges.
+    if (span > 0 && (span < 2 || !Number.isInteger(min) || !Number.isInteger(max))) {
+      return Math.pow(10, Math.floor(Math.log10(span / 100))) || 1;
+    }
+    return 1;
+  }
+
+  function formatSliderValue(value, parameter) {
+    const separator = typeof parameter.sep === 'string' ? parameter.sep : ',';
+    const prefix = typeof parameter.pre === 'string' ? parameter.pre : '';
+    const suffix = typeof parameter.post === 'string' ? parameter.post : '';
+    // Remove floating-point noise without padding labels with trailing zeroes.
+    const clean = Number(value.toPrecision(12));
+    const parts = String(Object.is(clean, -0) ? 0 : clean).split('.');
+    if (!/[eE]/.test(parts.join('.'))) {
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, () => separator);
+    }
+    return `${prefix}${parts.join('.')}${suffix}`;
+  }
+
+  function decorateSlider(row, wrapper) {
+    const { parameter, control } = row;
+    const min = Number(control.min);
+    const max = Number(control.max);
+    const span = max - min;
+    const step = Number(control.step);
+    wrapper.classList.add('slider-control');
+
+    const labels = document.createElement('div');
+    labels.className = 'slider-labels';
+    const minimum = document.createElement('span');
+    minimum.className = 'slider-min';
+    minimum.textContent = formatSliderValue(min, parameter);
+    const maximum = document.createElement('span');
+    maximum.className = 'slider-max';
+    maximum.textContent = formatSliderValue(max, parameter);
+    const output = document.createElement('output');
+    output.className = 'slider-value';
+    output.setAttribute('for', control.id);
+    output.setAttribute('aria-hidden', 'true');
+    labels.append(minimum, maximum, output);
+    wrapper.prepend(labels);
+
+    if (parameter.ticks !== false && span > 0) {
+      const scale = document.createElement('div');
+      scale.className = 'slider-scale';
+      scale.setAttribute('aria-hidden', 'true');
+      // Keep large ranges bounded: sample selectable steps, never thousands of DOM nodes.
+      const intervals = Math.floor(span / step + 1e-9);
+      const stride = Math.max(1, Math.ceil(intervals / 40));
+      const values = [];
+      for (let index = 0; index <= 40 && index * stride <= intervals; index++) {
+        const value = Math.min(max, min + index * stride * step);
+        values.push(Math.abs(value) < step * 1e-10 ? 0 : value);
+      }
+      if (!values.length || Math.abs(values[values.length - 1] - max) > span * 1e-10) values.push(max);
+      const labelStride = Math.max(1, Math.ceil((values.length - 1) / 4));
+      values.forEach((value, index) => {
+        const tick = document.createElement('span');
+        tick.className = 'slider-tick';
+        tick.style.left = `${(value - min) / span * 100}%`;
+        tick.dataset.value = String(Number(value.toPrecision(12)));
+        if (index % labelStride === 0 || index === values.length - 1) {
+          tick.classList.add('slider-tick-major');
+          // Endpoints already have labels above the track.
+          if (index > 0 && index < values.length - 1) {
+            const label = document.createElement('span');
+            label.className = 'slider-tick-label';
+            label.textContent = formatSliderValue(value, parameter);
+            tick.append(label);
+          }
+        }
+        scale.append(tick);
+      });
+      wrapper.append(scale);
+    }
+
+    const update = () => {
+      const value = control.valueAsNumber;
+      const fraction = span > 0 ? Math.max(0, Math.min(1, (value - min) / span)) : 0;
+      const text = row.nullDefault ? 'NULL' : formatSliderValue(value, parameter);
+      output.textContent = text;
+      // Track and label positions account for the native thumb's 16px width.
+      output.style.left = `calc(${fraction * 100}% + ${8 - fraction * 16}px)`;
+      output.style.transform = `translateX(-${fraction * 100}%)`;
+      control.style.setProperty('--slider-progress', `${fraction * 100}%`);
+      control.setAttribute('aria-valuetext', text);
+    };
+    control.addEventListener('input', update);
+    control.addEventListener('change', update);
+    update();
+  }
+
   function createControl(parameter, controlId) {
     const type = String(parameter.type || 'text').toLowerCase();
     const multiple = type === 'select' && Boolean(parameter.multiple);
@@ -123,8 +227,11 @@
         }
       } else if (type === 'slider') {
         control.type = 'range';
-        addNumberAttributes(control, parameter);
-        control.value = parameter.value !== undefined && parameter.value !== null ? String(parameter.value) : '';
+        const { min, max } = sliderBounds(parameter);
+        control.min = String(min);
+        control.max = String(max);
+        control.step = String(sliderStep(parameter, min, max));
+        control.value = parameter.value !== undefined && parameter.value !== null ? String(parameter.value) : String(min);
       } else if (type === 'date') {
         control.type = 'date';
         if (parameter.value !== undefined && parameter.value !== null) {
@@ -189,6 +296,7 @@
       const markEdited = () => { parameterRow.nullDefault = false; };
       control.addEventListener('input', markEdited);
       control.addEventListener('change', markEdited);
+      if (type === 'slider') decorateSlider(parameterRow, controlWrap);
       if (type === 'file') {
         const browseButton = document.createElement('button');
         browseButton.type = 'button';
