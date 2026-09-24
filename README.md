@@ -5,6 +5,7 @@ Edit YAML parameters and render parameterized R Markdown or Quarto reports in an
 [![Test and Build](https://github.com/rosericazondekon/knit-with-parameters/actions/workflows/check-standard.yml/badge.svg)](https://github.com/rosericazondekon/knit-with-parameters/actions/workflows/check-standard.yml)
 ![Version](https://img.shields.io/badge/version-0.0.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![Open VSX Downloads](https://img.shields.io/open-vsx/dt/rosericazondekon/knit-with-parameters)
 
 ## Demo
 
